@@ -1,0 +1,4 @@
+#!/bin/sh
+
+cc -o client client.c -lncurses
+./client
