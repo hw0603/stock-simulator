@@ -9,21 +9,21 @@
 void color_setup();
 
 
-int main()`
+int main()
 {
     initscr();
     move(10,10);
     color_setup();
     for( int i=0 ; i < 8 ; i++ )
-    {`
+    {
         for( int j=0 ; j < 10 ; j++ )
         {
             
             move(i,j);
-            attron(COLOR_PAIR(i));
-            printw("       ");`
+            // attron(COLOR_PAIR(i));
+            printw("       ");
             refresh();
-      
+    
             
         }
     }
