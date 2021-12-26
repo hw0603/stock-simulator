@@ -119,7 +119,6 @@ void* handle_clnt(void* arg) {
 
     char* sArr[10] = { NULL, };    // 크기가 10인 문자열 포인터 배열을 선언하고 NULL로 초기화
     while ((str_len = read(clnt_sock, msg, sizeof(msg))) != 0) {
-        pthread_mutex_lock(&mutx2);
         for (int i = 0; i < 10; i++) {
             sArr[i] = NULL;
         }
@@ -166,9 +165,10 @@ void* handle_clnt(void* arg) {
                         send_msg(clnt_sock, &flag, sizeof(flag));
                         continue;
                     }
-                    
+                    pthread_mutex_lock(&mutx2);
                     userlist[useridx].balance -= amount * clist[companyidx].value;
                     userlist[useridx].wallet[companyidx] += amount;
+                    pthread_mutex_unlock(&mutx2);
                     printf("%s | [BUY] %s %d주를 %d에 구매 -> 잔액: %d\n", userlist[useridx].username, clist[companyidx].name, amount, clist[companyidx].value, userlist[useridx].balance);
                     for (int i = 0; i < COMPANY_COUNT; i++) {
                         printf("%s:%d\t", clist[i].name, userlist[useridx].wallet[i]);
@@ -201,9 +201,10 @@ void* handle_clnt(void* arg) {
                         send_msg(clnt_sock, &flag, sizeof(flag));
                         continue;
                     }
-
+                    pthread_mutex_lock(&mutx2);
                     userlist[useridx].balance += amount * clist[companyidx].value;
                     userlist[useridx].wallet[companyidx] -= amount;
+                    pthread_mutex_unlock(&mutx2);
                     printf("%s | [SELL] %s %d주를 %d에 판매 -> 잔액: %d\n", userlist[useridx].username, clist[companyidx].name, amount, clist[companyidx].value, userlist[useridx].balance);
                     for (int i = 0; i < COMPANY_COUNT; i++) {
                         printf("%s:%d\t", clist[i].name, userlist[useridx].wallet[i]);
@@ -222,7 +223,6 @@ void* handle_clnt(void* arg) {
         else {
             printf("%s 는 올바른 명령이 아닙니다.\n", sArr[0]);
         }
-        pthread_mutex_unlock(&mutx2);
     }
 
     pthread_mutex_lock(&mutx);
@@ -363,7 +363,7 @@ int main(int argc, char* argv[]) {
 
         pthread_create(&t_id, NULL, handle_clnt, (void*)&clnt_sock);
         pthread_detach(t_id);
-        printf("Connected client IP: %s \n", inet_ntoa(clnt_adr.sin_addr));
+        printf("Connected client IP: %s %s\n", inet_ntoa(clnt_adr.sin_addr), userlist[clnt_cnt - 1].username);
     }
     close(serv_sock);
 
