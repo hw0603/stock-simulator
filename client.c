@@ -26,14 +26,14 @@
 #define LOGOROW 1
 #define LOGOCOL (MAXW/2 - 12)  
 
-#define MENUROW 15
+#define MENUROW 21
 #define MENUCOL (MAXW/2 - 5)  
 
 #define HOSTLEN 256
 
-#define STOCKS 5
+#define STOCKS 20
 
-#define oops(msg) {mvprintw(MAXH/2, MAXW/2, msg); refresh();}
+#define oops(msg) {mvprintw(LOGOROW+10, LOGOCOL, msg); refresh();}
 
 // user가 어느 화면에 있는지
 enum states { MAIN, LIST, TRADE, ACCOUNT, HELP };
@@ -209,11 +209,19 @@ void req_account_info() {
     char msg[BUFSIZ];
     strcpy(msg, "USERINFO");
     write(sock_id, msg, strlen(msg) + 1);
-    if ((read(sock_id, (struct User*)&user, sizeof(user))) == -1)
+    if ((read(sock_id, (char*)user.username, sizeof(user.username))) == -1)
     {
         oops("read");
         return;
-    } 
+    }
+    if ((read(sock_id, (int*)&user.money, sizeof(user.money))) == -1) {
+        oops("read");
+        return;
+    }
+    if ((read(sock_id, (int*)&user.stock, sizeof(user.stock))) == -1) {
+        oops("read");
+        return;
+    }
 }
 
 
@@ -638,8 +646,8 @@ void buy(int num, int amount) {
     // client가 돈이 없을 때
     if (!is_ok)     {
         clear();
-        oops("Money");
-        mvprintw(MENUROW, MENUCOL, "Press Any Key");
+        oops("No Money");
+        mvprintw(LOGOROW+11, LOGOCOL, "Press Any Key");
         refresh();
         while (getchar() == -1)         {
 
@@ -651,7 +659,6 @@ void buy(int num, int amount) {
 }
 
 void sell(int num, int amount) {
-  
 
     char c;
     char response[100];
@@ -677,7 +684,7 @@ void sell(int num, int amount) {
     if (!is_ok)     {
         clear();
         oops("No Stock");
-        mvprintw(MENUROW, MENUCOL, "Press Any Key");
+        mvprintw(LOGOROW + 11, LOGOCOL, "Press Any Key");
         refresh();
         while (getchar() == -1)
         {
@@ -704,6 +711,8 @@ void account_info() {
         sprintf(value, "%d", user.stock[i]);
         mvprintw(LOGOROW + 8, LOGOCOL - 12 + 10 * i, value);
     }
+    sprintf(u_n, "My money : %10d", user.money);
+    mvprintw(LOGOROW + 9, LOGOCOL - 12 + 10, u_n);
     refresh();
     while (getchar() == -1)
     {

@@ -16,12 +16,13 @@
 #define MAX_CLNT 32
 #define BUF_SIZE 128
 #define DEFAULT_BALANCE 1000000
-int COMPANY_COUNT = 0;
 
 int clnt_cnt = 0;
 int clnt_socks[MAX_CLNT];
 pthread_mutex_t mutx;
 pthread_mutex_t mutx2;
+
+int COMPANY_COUNT = 0;
 
 struct company {
     char name[20];
@@ -97,11 +98,13 @@ void send_msg(int clnt_sock, void* msg, int len) {
     pthread_mutex_unlock(&mutx);
 }
 
+
 void error_handling(char* msg) {
     fputs(msg, stderr);
     fputc('\n', stderr);
     exit(1);
 }
+
 
 void* handle_clnt(void* arg) {
     int clnt_sock = *((int*)arg);
@@ -120,13 +123,12 @@ void* handle_clnt(void* arg) {
             sArr[i] = NULL;
         }
 
-        // char s1[30] = "The Little Prince";    // 크기가 30인 char형 배열을 선언하고 문자열 할당
         int idx = 0;                     // 문자열 포인터 배열의 인덱스로 사용할 변수
 
         char* ptr = strtok(msg, " ");   // 공백 문자열을 기준으로 문자열을 자름
 
-        while (ptr != NULL)            // 자른 문자열이 나오지 않을 때까지 반복
-        {
+        // 자른 문자열이 나오지 않을 때까지 반복
+        while (ptr != NULL) {
             sArr[idx] = ptr;             // 문자열을 자른 뒤 메모리 주소를 문자열 포인터 배열에 저장
             idx++;                       // 인덱스 증가
 
@@ -138,11 +140,13 @@ void* handle_clnt(void* arg) {
             continue;
         }
         else if (!(strcmp(sArr[0], "GETLIST"))) {
-            send_msg(clnt_sock, (void*)clist, sizeof(clist));
+            send_msg(clnt_sock, (void*)clist, sizeof(struct company)*COMPANY_COUNT);
             printf("Getlist 보냄\n");
         }
         else if (!(strcmp(sArr[0], "USERINFO"))) {
-            send_msg(clnt_sock, (void*)&userlist[useridx], sizeof(userlist[useridx]));
+            send_msg(clnt_sock, (void*)&userlist[useridx].username, 20);
+            send_msg(clnt_sock, (void*)&userlist[useridx].balance, 4);
+            send_msg(clnt_sock, (void*)userlist[useridx].wallet, sizeof(int) * COMPANY_COUNT);
             printf("%d - UserInfo 보냄\n", clnt_sock);
         }
         else if (!(strcmp(sArr[0], "BUY"))) {
@@ -254,18 +258,16 @@ void* update_stockval(void* temp) {
     return NULL;
 }
 
-// 자식 프로세스에서 sort 시키고 부모는 거기서 읽음
+// fork() -> sort() in child -> return read_end of pipe
 int sortdata(int fd) {
     int p[2];
     int pid = 0;
     int status;
 
-    if (pipe(p) == -1) // get a pipe
+    if (pipe(p) == -1)
         error_handling("Cannot get a pipe");
 
-    /*------------------------------------------------------*/
-    /*   now we have a pipe, now let's get two processes    */
-    if ((pid = fork()) == -1)		/* get a proc	*/
+    if ((pid = fork()) == -1)
         error_handling("Cannot fork");
 
 
@@ -292,10 +294,10 @@ int sortdata(int fd) {
 
 
 int main(int argc, char* argv[]) {
-    int serv_sock, clnt_sock;
+    pthread_t t_comm, t_update;
     struct sockaddr_in serv_adr, clnt_adr;
+    int serv_sock, clnt_sock;
     int clnt_adr_sz;
-    pthread_t t_id, t_update;
 
     // check argv
     if (argc != 2) {
@@ -331,7 +333,8 @@ int main(int argc, char* argv[]) {
     pthread_mutex_init(&mutx, NULL);
     serv_sock = socket(PF_INET, SOCK_STREAM, 0);
     int opt = 1;
-    // 중복 bind() 허용
+    
+    // Allow Duplicated bind()
     setsockopt(serv_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     memset(&serv_adr, 0, sizeof(serv_adr));
@@ -351,18 +354,21 @@ int main(int argc, char* argv[]) {
 
         pthread_mutex_lock(&mutx);
         clnt_socks[clnt_cnt++] = clnt_sock;
+
         // initalize user
-        userlist = (struct User*)realloc(userlist, sizeof(struct User) * clnt_cnt);
-        sprintf(userlist[clnt_cnt - 1].username, "User_%d", clnt_cnt - 1);
-        userlist[clnt_cnt - 1].balance = DEFAULT_BALANCE;
-        userlist[clnt_cnt - 1].wallet = (int*)malloc(sizeof(int) * COMPANY_COUNT);
+        userlist = (struct User*)realloc(userlist, (sizeof(char)*20 + sizeof(int) + sizeof(int) * COMPANY_COUNT) * clnt_cnt);
+        userlist[clnt_cnt-1].wallet = (int*)malloc(sizeof(int) * COMPANY_COUNT);
+        sprintf(userlist[clnt_cnt-1].username, "User_%d", clnt_cnt);
+        userlist[clnt_cnt-1].balance = DEFAULT_BALANCE;
         for (int i = 0; i < COMPANY_COUNT; i++) {
-            userlist[clnt_cnt - 1].wallet[i] = 0;
+            userlist[clnt_cnt-1].wallet[i] = 0;
         }
+        
+        // clnt_cnt++;
         pthread_mutex_unlock(&mutx);
 
-        pthread_create(&t_id, NULL, handle_clnt, (void*)&clnt_sock);
-        pthread_detach(t_id);
+        pthread_create(&t_comm, NULL, handle_clnt, (void*)&clnt_sock);
+        pthread_detach(t_comm);
         printf("Connected client IP: %s %s\n", inet_ntoa(clnt_adr.sin_addr), userlist[clnt_cnt - 1].username);
     }
     close(serv_sock);
