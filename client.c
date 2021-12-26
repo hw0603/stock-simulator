@@ -10,6 +10,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <arpa/inet.h>
+
 #include <sys/types.h>
 #include <pthread.h>
 
@@ -34,19 +36,20 @@
 #define oops(msg) {mvprintw(MAXH/2, MAXW/2, msg); refresh();}
 
 // user가 어느 화면에 있는지
-enum states { MAIN, LIST, ACCOUNT, HELP };
+enum states { MAIN, LIST, TRADE, ACCOUNT, HELP };
 
+int comp_max = 0;
 struct company 
 {
     char name[20];
     int value;
-    int stdev;
+    double stdev;
 } company;
 struct company company_list[BUFSIZ];
-int comp_max = 0;
 
 struct User
 {
+    char username[20];
     int money;
     int stock[STOCKS];
 };
@@ -83,18 +86,22 @@ void set_signal();
 void start();
 
 // animate
-void *startwin(void *);
+void *main_menu(void *);
 void *stock_list(void *);
 void account_info();
 void helpme();
 
 
-void req_comp_list();
 void list_comp();
 int set_ticker( int );
 
-void buy(struct company *, int );
-void sell(struct company *, int );
+void buy(int , int );
+void sell(int , int );
+
+void connect_to_server(char **);
+void req_account_info();
+void req_comp_list();
+void req_buy_sell();
 
 
 pthread_mutex_t mx= PTHREAD_MUTEX_INITIALIZER;
@@ -116,8 +123,13 @@ int main(int ac, char*av[])
 	set_crmode();
     set_signal();
 
+    connect_to_server(av);
+
+    sleep(10);
+
 
     initscr();
+    
     
     color_setup();
     empty_setup();
@@ -133,8 +145,144 @@ int main(int ac, char*av[])
 
 
 
+void connect_to_server(char **argv)
+{
+    int sock;
+    struct sockaddr_in serv_addr;
+    sock = socket(PF_INET, SOCK_STREAM, 0);
+
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = inet_addr(argv[1]);
+    serv_addr.sin_port = htons(atoi(argv[2]));
+
+    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1)
+    {   
+        oops("connect");
+        return;
+    }
+
+    sock_id = sock;
+    req_account_info();
+    return;
+}  
+
+void req_comp_list()
+{
+
+    comp_max = 0;
+    char msg[BUFSIZ];
+    strcpy(msg, "GETLIST");
+    write(sock_id, msg, strlen(msg)+1);
+    if( (comp_max = read(sock_id, company_list, BUFSIZ)) == -1 )
+    {
+        oops("read");
+        return;
+    }
+    
+
+    // 회사 숫자
+    
+    // company sample
+    // struct company ex1;
+    // strcpy(ex1.name,"samsung\0");
+    // ex1.value = (1000 + rand())%1000;
+    // ex1.stdev = 0;
+    // company_list[comp_max] = ex1;
+    // comp_max++;
+
+    // struct company ex2;
+    // strcpy(ex2.name,"hynix\0");
+    // ex2.value = (1000 + rand())%1000;
+    // ex2.stdev = 1;
+    // company_list[comp_max] = ex2;
+    // comp_max++;
+
+    // struct company ex3;
+    // strcpy(ex3.name,"ynix\0");
+    // ex3.value = (1000 + rand())%1000;
+    // ex3.stdev = 2;
+    // company_list[comp_max] = ex3;
+    // comp_max++;
 
 
+    // 입력 ./program snow portnum
+    
+    // hp = gethostbyname(hostname);
+
+    
+
+    // if( write(sock_id, (void*)get_msg, sizeof(get_msg)) == -1 )
+    // {
+    //     oops("Error : write");
+    // }
+    // else
+    // {
+    //     while( read(sock_id, (void*)&(company_list[comp_max]), sizeof(company_list[comp_max])) )
+    //     {
+    //         mvprintw(LOGOROW+10+comp_max,LOGOCOL-10, company_list->name);
+    //         mvprintw(LOGOROW+10+comp_max,LOGOCOL, ":");
+    //         sprintf(value, "%dwon", company_list->value);
+    //         mvprintw(LOGOROW+10+comp_max,LOGOCOL+2, value);
+    //         comp_max++;
+    //     }
+    //     refresh();
+    // }
+}
+
+void req_account_info()
+{
+    char msg[BUFSIZ];
+    strcpy(msg, "USERINFO");
+    write(sock_id, msg, strlen(msg)+1);
+    if( (comp_max = read(sock_id, (struct User *)&user, sizeof(user))) == -1 )
+    {
+        oops("read");
+        return;
+    }
+}
+
+
+void tty_mode(int how)
+{
+	static struct termios original_mode;
+	static int original_flags;
+
+	if(how == 0)
+	{
+		tcgetattr(0, &original_mode);
+		original_flags = fcntl(0,F_GETFL);
+	}
+	else 
+	{
+		tcsetattr(0, TCSANOW, &original_mode);
+		original_flags = fcntl(0, F_SETFL, original_flags);
+	}
+}
+
+void set_nodelay_mode(void)
+{
+	int termflags;
+	termflags = fcntl(0, F_GETFL);
+	termflags |= O_NDELAY;
+	fcntl(0, F_SETFL, termflags);
+}
+
+void set_crmode(void)
+{	
+	struct termios state;
+	tcgetattr(0, &state);
+	state.c_lflag &= ~ICANON;
+	state.c_cc[VMIN] = 1;
+
+	tcsetattr(0, TCSANOW, &state);
+}
+
+void set_signal()
+{
+    signal(SIGQUIT,SIG_IGN);
+
+}
 
 void color_setup()
 {
@@ -167,53 +315,142 @@ void empty_setup()
     }
 }
 
+void start()
+{   
+    pthread_t t_list[10];
 
+    // ncurses 는 동일한 window 에서 작성 -> 같은 자원을 공유
+    // 따라서 모든 refresh, addstr 등의 작업시에 mutex exclusive 가 보장되어야함
+    pthread_mutex_lock(&mx);
+    pthread_create(&t_list[0], NULL, main_menu, NULL);
+    // pthread_create(&t_list[1], NULL, stock_list, NULL);
 
+    // 입력 받는 부분
+    char c;
+    int state = MAIN;
+    while( 1 )
+    {
+        c = getchar();
+        if( c == 's' )
+            {
+                if( state == MAIN && key_row == 2 )
+                    continue;
+                if( state == LIST && key_row == comp_max-1 )
+                    continue;    
+                key_row++;
+            }
+        if( c == 'w' )
+            {
+                if( key_row == 0 )
+                    continue;
+                key_row--;
+            }
+        if( c == 'a' && state == LIST)
+            {
+                if( key_col == 0 )
+                    continue;
+                key_col--;
+            }
+        if( c == 'd' && state == LIST)
+            {
+                if( key_col == 1 )
+                    continue;
+                key_col++;
+            }
+        if( c == 'f' && state == LIST)
+            {
+                if( amount == 10 )
+                    continue;
+                amount++;
+            }
+        if( c == 'g' && state == LIST)
+            {
+                if( amount == 0 )
+                    continue;
+                amount--;
+            }
+        if( c == 13 )
+            {
+                if( state == MAIN )
+                {   
+                    fl = 1;
+                    pthread_join(t_list[0],NULL);
+                    fl = 0;
+                    if( key_row == 0 )
+                    {
+                        // main_menu 끄고 stock_list animate 키고
+                        state = LIST;
+                        pthread_create(&t_list[1], NULL, stock_list, NULL);
+                    }
+                    if( key_row == 1 )
+                    {
+                        // main_menu 끄고 account_info
+                        state = ACCOUNT;
+                        account_info();
+                        state = MAIN;
+                        pthread_create(&t_list[0], NULL, main_menu, NULL);
+                    }
+                    if( key_row == 2 )
+                    {
+                        // main_menu  끄고 helpme
+                        state = HELP;
+                        helpme();
+                        state = MAIN;
+                        pthread_create(&t_list[0], NULL, main_menu, NULL);
+                    }
+                }
+                else if( state == LIST )
+                {
+                    fl = 1;
+                    pthread_join(t_list[1],NULL);
+                    fl = 0;
+                    state = TRADE;
+                    if( key_col == 0 )
+                    {
+                        buy(key_row, amount);
+                    }
+                    if( key_col == 1 )
+                    {
+                        sell(key_row, amount);
+                    }
+                    amount = 0;
+                    key_col = 0;
+                    key_row = 0;
+                    state = LIST;
+                    pthread_create(&t_list[1], NULL, stock_list, NULL);
+                }
+                else if( state == ACCOUNT )
+                {
 
+                }
+                refresh();
+            }
+        if( c == 'q' )
+        {
+            fl=1;
+            if( state == MAIN )
+                {
+                    pthread_cancel(t_list[0]);
+                    endwin();
+                    return;
+                }
+                else if( state == LIST )
+                {
+                    state = MAIN;
+                    pthread_join(t_list[1],NULL);
+                    pthread_create(&t_list[0], NULL, main_menu, NULL);
+                    fl = 0;
+                }
+                else if( state == ACCOUNT )
+                {
 
-void tty_mode(int how)
-{
-	static struct termios original_mode;
-	static int original_flags;
-
-	if(how == 0)
-	{
-		tcgetattr(0, &original_mode);
-		original_flags = fcntl(0,F_GETFL);
-	}
-	else 
-	{
-		tcsetattr(0, TCSANOW, &original_mode);
-		original_flags = fcntl(0, F_SETFL, original_flags);
-	}
+                }
+        }
+        pthread_mutex_unlock(&mx);
+    }   
 }
 
-void set_nodelay_mode(void)
-{
-	int termflags;
-	termflags = fcntl(0, F_GETFL);
-	termflags |= O_NDELAY;
-	fcntl(0, F_SETFL, termflags);
-}
-
-
-void set_crmode(void)
-{	
-	struct termios state;
-	tcgetattr(0, &state);
-	state.c_lflag &= ~ICANON;
-	state.c_cc[VMIN] = 1;
-
-	tcsetattr(0, TCSANOW, &state);
-}
-
-void set_signal()
-{
-    signal(SIGQUIT,SIG_IGN);
-
-}
-
-void *startwin(void *arg)
+void *main_menu(void *arg)
 {   
     pthread_mutex_lock(&mx);
     int stout;
@@ -305,283 +542,6 @@ void *startwin(void *arg)
     return NULL;
 }
 
-
-void start()
-{   
-    pthread_t t_list[10];
-
-    // ncurses 는 동일한 window 에서 작성 -> 같은 자원을 공유
-    // 따라서 모든 refresh, addstr 등의 작업시에 mutex exclusive 가 보장되어야함
-    pthread_mutex_lock(&mx);
-    pthread_create(&t_list[0], NULL, startwin, NULL);
-    // pthread_create(&t_list[1], NULL, stock_list, NULL);
-
-    // 입력 받는 부분
-    char c;
-    int state = MAIN;
-
-    while( 1 )
-    {
-
-        c = getchar();
-        if( c == 's' )
-            {
-                if( state == MAIN && key_row == 2 )
-                    continue;
-
-                if( state == LIST && key_row == comp_max-1 )
-                    continue;    
-                    
-                key_row++;
-            }
-        if( c == 'w' )
-            {
-                if( key_row == 0 )
-                    continue;
-                key_row--;
-            }
-        if( c == 'a' && state == LIST)
-            {
-                if( key_col == 0 )
-                    continue;
-                key_col--;
-            }
-        if( c == 'd' && state == LIST)
-            {
-                if( key_col == 1 )
-                    continue;
-                key_col++;
-            }
-        if( c == 'f' && state == LIST)
-            {
-                if( amount == 10 )
-                    continue;
-                amount++;
-            }
-        if( c == 'g' && state == LIST)
-            {
-                if( amount == 0 )
-                    continue;
-                amount--;
-            }
-        if( c == 13 )
-            {
-                if( state == MAIN )
-                {   
-                    fl = 1;
-                    pthread_join(t_list[0],NULL);
-                    fl = 0;
-                    if( key_row == 0 )
-                    {
-                        // startwin 끄고 stock_list animate 키고
-                        state = LIST;
-                        pthread_create(&t_list[1], NULL, stock_list, NULL);
-                    }
-                    if( key_row == 1 )
-                    {
-                        // startwin 끄고 account_info animate 키고
-                        state = ACCOUNT;
-                        account_info();
-                        pthread_create(&t_list[0], NULL, startwin, NULL);
-                        state = MAIN;
-                    }
-                    if( key_row == 2 )
-                    {
-                        // startwin  끄고 stock_list animate 키고
-                        state = HELP;
-                        helpme();
-                        pthread_create(&t_list[0], NULL, startwin, NULL);
-                        state = MAIN;
-                        // helpme();
-                    }
-                }
-                else if( state == LIST )
-                {
-                    fl = 1;
-                    pthread_join(t_list[1],NULL);
-                    fl = 0;
-                    if( key_col == 0 )
-                    {
-                        // startwin  끄고 stock_list animate 키고
-                        buy(&(company_list[key_row]), amount);
-                    }
-                    if( key_col == 1 )
-                    {
-                        sell(&(company_list[key_row]), amount);
-                    }
-                    amount = 0;
-                    key_col = 0;
-                    key_row = 0;
-                    pthread_create(&t_list[1], NULL, stock_list, NULL);
-                }
-                else if( state == ACCOUNT )
-                {
-
-                }
-
-                refresh();
-            }
-        if( c == 'q' )
-        {
-            fl=1;
-            if( state == MAIN )
-                {
-                    pthread_cancel(t_list[0]);
-                    endwin();
-                    return;
-                }
-                else if( state == LIST )
-                {
-                    state = MAIN;
-                    // pthread_cancel(t_list[1]);
-                    pthread_join(t_list[1],NULL);
-                    pthread_create(&t_list[0], NULL, startwin, NULL);
-                    fl = 0;
-                }
-                // else if( state == ACCOUNT )
-                // {
-
-                // }
-        }
-        pthread_mutex_unlock(&mx);
-
-    }   
-
-    
-
-}
-
-
-
-
-
-void list_comp()
-{
-    // printw 류는 동일한 자원에 접근함
-    // req_comp_list();
-    char value[20];
-    for( int i = 0 ; i < comp_max ; i++ )
-    {
-        mvprintw(LOGOROW+5+i,LOGOCOL-10, company_list[i].name);
-        mvprintw(LOGOROW+5+i,LOGOCOL, ":");
-        sprintf(value, "%dwon", company_list[i].value);
-        mvprintw(LOGOROW+5+i,LOGOCOL+2, empty[6]);
-        mvprintw(LOGOROW+5+i,LOGOCOL+2, value);
-    }
-    
-    // // comp_max++;
-    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL-10, company_list[comp_max].name);
-    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL, ":");
-    // // sprintf(value, "%dwon", company_list[comp_max].value);
-    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL+2, value);
-    // // comp_max++;
-    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL-10, company_list[comp_max].name);
-    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL, ":");
-    // // sprintf(value, "%dwon", company_list[comp_max].value);
-    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL+2, value);
-    // // comp_max++;
-    // // refresh();
-
-    char m[20];
-    char m_s[20];
-    char amt[20];
-    strcpy(m_s,"My Money : ");
-    sprintf(m,"%d",user.money);
-    sprintf(amt,"%d",amount);
-    strcat(m_s,m);
-    mvprintw(MENUROW-2,MENUCOL+10,empty[2]);
-    mvprintw(MENUROW-2,MENUCOL+10,amt);
-    mvprintw(MENUROW-1,MENUCOL+10,m_s);
-
-
-
-}
-
-void req_comp_list()
-{
-
-    comp_max = 0;
-
-
-    struct sockaddr_in addr;
-    struct hostent *hp;
-
-    char *get_msg = "GETLIST\0";
-    // 회사 숫자
-    
-    struct company ex1;
-    strcpy(ex1.name,"samsung\0");
-    ex1.value = (1000 + rand())%1000;
-    ex1.stdev = 0;
-    company_list[comp_max] = ex1;
-    comp_max++;
-
-    struct company ex2;
-    strcpy(ex2.name,"hynix\0");
-    ex2.value = (1000 + rand())%1000;
-    ex2.stdev = 1;
-    company_list[comp_max] = ex2;
-    comp_max++;
-
-    struct company ex3;
-    strcpy(ex3.name,"ynix\0");
-    ex3.value = (1000 + rand())%1000;
-    ex3.stdev = 2;
-    company_list[comp_max] = ex3;
-    comp_max++;
-    // ./program snow portnum
-    
-    sock_id = socket(PF_INET, SOCK_STREAM, 0);
-
-    // hp = gethostbyname(hostname);
-
-    // bcopy((void *)&hp->h_name, (void *)&addr.sin_addr, hp->h_length);
-    // addr.sin_port = htons(port);
-    // addr.sin_family = AF_INET;
-
-    // if(connect(sock_id, (struct sockaddr *)&addr, sizeof(addr)) !=0)
-    //     oops("ERROR : connect");
-
-    // if( write(sock_id, (void*)get_msg, sizeof(get_msg)) == -1 )
-    // {
-    //     oops("Error : write");
-    // }
-    // else
-    // {
-    //     while( read(sock_id, (void*)&(company_list[comp_max]), sizeof(company_list[comp_max])) )
-    //     {
-    //         mvprintw(LOGOROW+10+comp_max,LOGOCOL-10, company_list->name);
-    //         mvprintw(LOGOROW+10+comp_max,LOGOCOL, ":");
-    //         sprintf(value, "%dwon", company_list->value);
-    //         mvprintw(LOGOROW+10+comp_max,LOGOCOL+2, value);
-    //         comp_max++;
-    //     }
-    //     refresh();
-    // }
-}
-
-void update_stock(int signum)
-{
-    req_comp_list();
-}
-
-
-int set_ticker( int n_msecs )
-{
-    struct itimerval new_timeset;
-    long n_sec, n_usecs;
-
-    n_sec = n_msecs / 1000;
-    n_usecs = ( n_msecs%1000 ) *1000L;
-
-    new_timeset.it_interval.tv_sec = n_sec;
-    new_timeset.it_interval.tv_usec = n_usecs;
-    new_timeset.it_value.tv_sec = n_sec;
-    new_timeset.it_value.tv_usec = n_usecs;
-    return setitimer(ITIMER_REAL, &new_timeset, NULL);
-}
-
-
 void *stock_list(void *arg)
 {
     clear();
@@ -602,12 +562,17 @@ void *stock_list(void *arg)
     action[0] = "BUY";
     action[1] = "SELL";
     int h = 0;
+
     while( 1 )
     {
         pthread_mutex_lock(&mx);
+
+        //draw company list
         list_comp();
+
         arr = key_row;
         buy_sell = key_col;
+
         for( int i = 0 ; i < 3 ; i++ )
         {
             if( i == arr )
@@ -630,29 +595,114 @@ void *stock_list(void *arg)
             standend();
         }
         refresh();
+
         if(fl == 1)
         {   
             pthread_mutex_unlock(&mx);
             break;
         }
+
         pthread_mutex_unlock(&mx);
     }
     return NULL;
 }
 
+void list_comp()
+{
+    // printw 류는 동일한 자원에 접근함
+    char value[20];
+    for( int i = 0 ; i < comp_max ; i++ )
+    {
+        mvprintw(LOGOROW+5+i,LOGOCOL-10, company_list[i].name);
+        mvprintw(LOGOROW+5+i,LOGOCOL, ":");
+        sprintf(value, "%dwon", company_list[i].value);
+        mvprintw(LOGOROW+5+i,LOGOCOL+2, empty[6]);
+        mvprintw(LOGOROW+5+i,LOGOCOL+2, value);
+    }
 
+    // // comp_max++;
+    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL-10, company_list[comp_max].name);
+    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL, ":");
+    // // sprintf(value, "%dwon", company_list[comp_max].value);
+    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL+2, value);
+    // // comp_max++;
+    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL-10, company_list[comp_max].name);
+    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL, ":");
+    // // sprintf(value, "%dwon", company_list[comp_max].value);
+    // // mvprintw(LOGOROW+5+comp_max,LOGOCOL+2, value);
+    // // comp_max++;
+    // // refresh();
 
-void buy(struct company *comp, int amount)
+    char m[20];
+    char m_s[20];
+    char amt[20];
+
+    strcpy(m_s, "My Money : ");
+    sprintf(m, "%d", user.money);
+    strcat(m, " won");
+    strcat(m_s, m);
+
+    sprintf(amt, "%d", amount);
+    strcat(amt, " stocks");
+
+    mvprintw(MENUROW-2,MENUCOL+10,empty[2]);
+    mvprintw(MENUROW-2,MENUCOL+10,amt);
+    mvprintw(MENUROW-1,MENUCOL+10,m_s);
+}
+
+void update_stock(int signum)
+{
+    req_comp_list();
+}
+
+int set_ticker( int n_msecs )
+{
+    struct itimerval new_timeset;
+    long n_sec, n_usecs;
+
+    n_sec = n_msecs / 1000;
+    n_usecs = ( n_msecs%1000 ) *1000L;
+
+    new_timeset.it_interval.tv_sec = n_sec;
+    new_timeset.it_interval.tv_usec = n_usecs;
+    new_timeset.it_value.tv_sec = n_sec;
+    new_timeset.it_value.tv_usec = n_usecs;
+
+    return setitimer(ITIMER_REAL, &new_timeset, NULL);
+}
+
+void buy(int num, int amount)
 {
 //     char *buy_msg;
 //     sprintf(buy_msg, "BUY %s %d", comp->name, amount);
     
     char c;
     char response[100];
+    char msg[BUFSIZ];
+    char amt[20];
+    int is_ok;
+    struct company *comp = &company_list[num];
 
+    strcpy(msg, "BUY \0");
+    strcat(msg, comp->name);
+    msg[sizeof(msg)] = ' \0';
+    sprintf(amt, "%d", amount);
+    // SELL NAME AMT
+    strcat(msg, amt);
+    write(sock_id, msg, strlen(msg)+1);
+    if( (read(sock_id, &is_ok, sizeof(is_ok))) == -1 )
+    {
+        oops("read");
+        return;
+    }
+
+
+    // server 와 동기화 한번 하고
     pthread_mutex_lock(&mx);
-    // client 단에서 이미 돈이 없을 때
-    if( (user.money - comp->value * amount) < 0 )
+    req_account_info(); //USER
+    
+    // client가 돈이 없을 때
+    if( !is_ok )
     {
         clear();
         oops("Money");
@@ -670,48 +720,44 @@ void buy(struct company *comp, int amount)
         // 요청
         // 성공
         user.money -= comp->value * amount;
-        user.stock[comp->stdev] = user.stock[comp->stdev]+amount;
+        user.stock[num] = user.stock[num]+amount;
         return;
     }
-    // else
-    // {
-    //     if( write(sock_id, (void*)buy_msg, sizeof(buy_msg)) == -1 )
-    //     {
-    //         oops("Error : write");
-    //     }
-    //     else
-    //     {
-    //         if ( read(sock_id, (void*)&response, 20) != -1 )
-    //         {
-    //             response = strtok(response, " ");
-    //             if( response == "o")
-    //             {
-    //                 user.money -= atoi(strtok(NULL," "));
-    //                 strtok(NULL," "); // 비우기
-    //             }
-    //             else
-    //                 clear(); oops("Money"); 
-    //         }
-    //         refresh();
-    //     }
-    // }
- 
-    
-    
-
 }
 
-void sell(struct company *comp, int amount)
+void sell(int num, int amount)
 {
     //     char *buy_msg;
     //     sprintf(buy_msg, "BUY %s %d", comp->name, amount);
     
     char c;
     char response[100];
+    char msg[BUFSIZ];
+    char amt[20];
+    int is_ok;
+    struct company *comp = &company_list[num];
 
+
+
+    strcpy(msg, "SELL \0");
+    strcat(msg, comp->name);
+    msg[sizeof(msg)] = '\0';
+    sprintf(amt, "%d", amount);
+    // SELL NAME AMT
+    strcat(msg, amt);
+    write(sock_id, msg, strlen(msg)+1);
+    if( (read(sock_id, &is_ok, sizeof(is_ok))) == -1 )
+    {
+        oops("read");
+        return;
+    }
+
+    // server 와 동기화 한번 하고
     pthread_mutex_lock(&mx);
-    // client 단에서 보유 수량 없을 때
-    if(user.stock[comp->stdev] < amount)
+    req_account_info(); //USER
+
+    // client의 주식 보유 수량 없을 때
+    if(!is_ok)
     {
         clear();
         oops("No Stock");
@@ -728,38 +774,38 @@ void sell(struct company *comp, int amount)
         // 요청
         // 성공
         user.money += comp->value * amount;
-        user.stock[comp->stdev] = user.stock[comp->stdev]-amount;
+        user.stock[num] = user.stock[num]-amount;
         return;
     }
+
+
+    // if(user.stock[num] < amount)
+    // {
+    //     clear();
+    //     oops("No Stock");
+    //     mvprintw(MENUROW, MENUCOL, "Press Any Key");
+    //     refresh();
+    //     while( getchar() == -1 )
+    //     {
+            
+    //     }
+    //     return;
+    // }
     // else
     // {
-    //     if( write(sock_id, (void*)buy_msg, sizeof(buy_msg)) == -1 )
-    //     {
-    //         oops("Error : write");
-    //     }
-    //     else
-    //     {
-    //         if ( read(sock_id, (void*)&response, 20) != -1 )
-    //         {
-    //             response = strtok(response, " ");
-    //             if( response == "o")
-    //             {
-    //                 user.money -= atoi(strtok(NULL," "));
-    //                 strtok(NULL," "); // 비우기
-    //             }
-    //             else
-    //                 clear(); oops("Money"); 
-    //         }
-    //         refresh();
-    //     }
+    //     // 요청
+    //     // 성공
+    //     user.money += comp->value * amount;
+    //     user.stock[comp->stdev] = user.stock[comp->stdev]-amount;
+    //     return;
     // }
-
 }
-
 
 void account_info()
 {
     pthread_mutex_lock(&mx);
+    req_account_info();
+
     clear();
 
     char value[20];
@@ -771,7 +817,6 @@ void account_info()
         sprintf(value,"%d",user.stock[i]);
         mvprintw(LOGOROW+8,LOGOCOL-12+10*i, value);
     }
-    
     refresh();
     while( getchar() == -1 )
     {

@@ -1,4 +1,4 @@
 #!/bin/sh
 
-cc -o client client.c -lncurses
-./client
+cc -o client client.c -lncurses -lpthread
+./client 127.0.0.1 3000

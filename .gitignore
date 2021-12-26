@@ -52,7 +52,10 @@ Mkfile.old
 dkms.conf
 
 
-program
-client
 server
 *.json
+
+
+stockdata.dat
+test*.*
+chat*
