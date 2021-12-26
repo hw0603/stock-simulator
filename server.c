@@ -16,10 +16,6 @@
 #define COMPANY_COUNT 5
 
 
-char username[20] = "TestUser1";
-int balance = 1000000;
-
-
 int clnt_cnt = 0;
 int clnt_socks[MAX_CLNT];
 pthread_mutex_t mutx;
@@ -29,8 +25,15 @@ struct company {
     int value;
     double stdev;
 } company;
-
 struct company clist[COMPANY_COUNT];
+
+struct User {
+    char username[20];
+    int balance;
+    int wallet[COMPANY_COUNT];
+} User;
+struct User user;
+
 
 // 가우시안 랜덤 함수
 double gaussianRandom(double average, double stdev) {
@@ -73,12 +76,12 @@ int findidx(char* companyname) {
 }
 
 
-void send_msg(int clnt_sock, char* msg, int len)   // send msg to requested client
-{
+void send_msg(int clnt_sock, void* msg, int len) {
     pthread_mutex_lock(&mutx);
     write(clnt_sock, msg, len);
     pthread_mutex_unlock(&mutx);
 }
+
 void error_handling(char* msg) {
     fputs(msg, stderr);
     fputc('\n', stderr);
@@ -92,8 +95,7 @@ void* handle_clnt(void* arg) {
     char response[BUF_SIZE];
     char optype[10] = {'\0', };
     char argument[50] = { '\0', };
-    // char username[50] = { '\0', };
-
+    
     while ((str_len = read(clnt_sock, msg, sizeof(msg))) != 0) {
         strcpy(optype, "");
         strcpy(argument, "");
@@ -107,7 +109,7 @@ void* handle_clnt(void* arg) {
         }
         else if (!(strcmp(optype, "BALANCE"))) {
             char temp[20];
-            sprintf(temp, "%d\n", balance);
+            sprintf(temp, "%d\n", user.balance);
             send_msg(clnt_sock, temp, strlen(temp));
         }
         else if (!(strcmp(optype, "GETVAL"))) {
@@ -127,8 +129,8 @@ void* handle_clnt(void* arg) {
     }
 
     pthread_mutex_lock(&mutx);
-    for (i = 0; i < clnt_cnt; i++)   // remove disconnected client
-    {
+    // remove disconnected client
+    for (i = 0; i < clnt_cnt; i++) {
         if (clnt_sock == clnt_socks[i]) {
             while (i < clnt_cnt)
                 clnt_socks[i] = clnt_socks[i + 1];
@@ -143,15 +145,10 @@ void* handle_clnt(void* arg) {
 
 
 // 자식 프로세스에서 sort 시키고 부모는 거기서 읽음
-int sortdata(FILE* fp) {
+int sortdata(int fd) {
     int p[2];
     int pid = 0;
-    int fd = fileno(fp);
     int status;
-    // printf("%d\n", fd);
-    char temp[20];
-
-    int tempnum = 0;
 
     if (pipe(p) == -1) // get a pipe
         error_handling("Cannot get a pipe");
@@ -161,64 +158,27 @@ int sortdata(FILE* fp) {
     if ((pid = fork()) == -1)		/* get a proc	*/
         error_handling("Cannot fork");
 
-    /*-------------------------------------------------------*/
-    /*	Right here, there are two processes		*/
-    /*	parent will read from pipe			    */
+
     if (pid > 0) {
-        close(p[1]);	// parent doesn't write to pipe
-        // if (dup2(p[0], 0) == -1)
-        //     error_handling("could not redirect stdin");
-        // close(p[0]); // stdin is duped, close pipe
-        printf("Waiting...\n");
+        close(p[1]);
         if (waitpid(pid, &status, 0) == -1)
             error_handling("wait error");
-        printf("Done Waiting...\n");
-        // while (1) {
-        //     int str_len = read(p[0], temp, 20);
-        //     if (str_len == -1) {
-        //         printf("없습니다.\n");
-        //         break;
-        //     }
-        //     if (str_len == 0)
-        //         break;
-        //     temp[str_len] = 0;
-        //     fputs(temp, stdout);
-        // }
-        // FILE* fp = fdopen(p[0], O_RDONLY);
-        // read(0, temp, 20);
-        // printf("%s", temp);
     }
     else {
-        // printf("In child\n");
-        // int testfd = open("./test.txt", O_CREAT | O_WRONLY | O_TRUNC);
-        
-        // sprintf(temp, "%s", "Hi Hello\n");
-        // printf("%s", temp);
-        
-        /* child execs sort and writes into pipe */
-        close(p[0]);		/* child doesn't read from pipe	*/
+        close(p[0]);
         if (dup2(p[1], 1) == -1)
             error_handling("could not redirect stdout");
-        close(p[1]);		/* stdout is duped, close pipe	*/
+        close(p[1]);
         // stdin을 데이터 파일로 redirect
         if (dup2(fd, 0) == -1)
             error_handling("could not redirect stdin");
 
-        // exit(0);
-        // execlp("echo", "echo", "dsdfsdfsdfsdf1324d", NULL);
-        // printf("TeestTetetsdfklsdjflksdfdddddddd010\n");
-
-        // write(1, temp, 20);
         execlp("sort", "sort", NULL);
         
         error_handling("error sorting");
-
-        // close(testfd);
     }
-    // printf("Sort Returned!\n");
     return p[0];
 }
-
 
 
 int main(int argc, char* argv[]) {
@@ -226,6 +186,8 @@ int main(int argc, char* argv[]) {
     struct sockaddr_in serv_adr, clnt_adr;
     int clnt_adr_sz;
     pthread_t t_id;
+
+    // check argv
     if (argc != 2) {
         printf("Usage : %s <port>\n", argv[0]);
         exit(1);
@@ -233,42 +195,28 @@ int main(int argc, char* argv[]) {
     
     srand(time(NULL));
 
-    FILE* fp = fopen("stockdata.dat", "r");
-
-    printf("%d\n", sortdata(fp)); // 4
-    // exit(-1);
-    // printf("%d\n", 1234);
-
-    int cnt = 0;
+    // copy sorted data to struct company
+    int fd = open("stockdata.dat", O_RDONLY);
+    int pipefd = sortdata(fd);
     char temp[20];
-
-    FILE* fp2 = fdopen(4, "rb");
-    // for (int i = 0; i < 15; i++) {
-    //     fgets(temp, 20, fp2);
-    //     // int str_len = read(4, temp, 20);
-    //     // if (str_len == -1) {
-    //     //     printf("없습니다.\n");
-    //     //     break;
-    //     // }
-    //     // if (str_len == 0)
-    //     //     break;
-    //     // temp[str_len] = 0;
-    //     // fputs(temp, stdout);
-    //     sscanf(temp, "%s %d %lf", clist[cnt].name, &clist[cnt].value, &clist[cnt].stdev);
-    //     cnt++;
-    // }
-
-    // fseek(fp, SEEK_SET, 0);
+    FILE* fp = fdopen(pipefd, "rb");
     for (int i = 0; i < COMPANY_COUNT; i++) {
-        fscanf(fp2, "%s %d %lf", clist[i].name, &clist[i].value, &clist[i].stdev);
-    }
-    for (int i = 0; i < COMPANY_COUNT; i++) {
+        fscanf(fp, "%s %d %lf", clist[i].name, &clist[i].value, &clist[i].stdev);
         printf("%s\t%d\t%lf\n", clist[i].name, clist[i].value, clist[i].stdev);
     }
     fclose(fp);
-    fclose(fp2);
-    close(4);
+    close(pipefd);
+    
 
+    // initalize user
+    strcpy(user.username, "TestUser1");
+    user.balance = 1000000;
+    for (int i = 0; i < COMPANY_COUNT; i++) {
+        user.wallet[i] = 0;
+    }
+    
+
+    // initalize socket
     pthread_mutex_init(&mutx, NULL);
     serv_sock = socket(PF_INET, SOCK_STREAM, 0);
 
@@ -283,13 +231,6 @@ int main(int argc, char* argv[]) {
         error_handling("listen() error");
 
 
-    // int idx = 1;
-    // printf("\n\nCalculating %s...\n", clist[idx].name);
-    // for (int i = 0; i < 100; i++) {
-    //     printf("%d\n", *(next_value(&clist[idx].value, clist[idx].stdev)));
-    // }
-
-    
     while (1) {
         clnt_adr_sz = sizeof(clnt_adr);
         clnt_sock = accept(serv_sock, (struct sockaddr*)&clnt_adr, &clnt_adr_sz);
