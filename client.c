@@ -47,7 +47,7 @@ struct company
 } company;
 struct company company_list[BUFSIZ];
 struct company pre_company_list[BUFSIZ];
-float rise_rate[STOCKS] = { 0.0, };
+float rise_rate[STOCKS] = {0.0,};
 
 struct User
 {
@@ -124,7 +124,7 @@ int main(int ac, char* av[]) {
 
     connect_to_server(av);
 
-
+    
 
 
     initscr();
@@ -154,7 +154,8 @@ void connect_to_server(char** argv) {
     serv_addr.sin_addr.s_addr = inet_addr(argv[1]);
     serv_addr.sin_port = htons(atoi(argv[2]));
 
-    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1)     {
+    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1)
+    {
         oops("connect");
         return;
     }
@@ -169,9 +170,11 @@ void req_comp_list() {
     char msg[BUFSIZ];
     int bt;
 
-    if (first_access != 0)     {
-
-        for (int i = 0; i < comp_max; i++)         {
+    if(first_access != 0)
+    {
+        
+        for( int i = 0 ; i<comp_max ; i++ )
+        {
             pre_company_list[i] = company_list[i];
         }
 
@@ -181,17 +184,20 @@ void req_comp_list() {
 
     strcpy(msg, "GETLIST");
     write(sock_id, msg, strlen(msg) + 1);
-    if ((bt = read(sock_id, company_list, BUFSIZ)) == -1)     {
+    if ((bt = read(sock_id, company_list, BUFSIZ)) == -1)
+    {
         oops("read");
         return;
     }
     comp_max = bt / sizeof(struct company);
-    if (first_access != 0)     {
-        for (int i = 0; i < comp_max; i++)         {
-            rise_rate[i] = (float)(company_list[i].value - pre_company_list[i].value) / (float)pre_company_list[i].value;
-
+    if(first_access != 0)
+    {   
+        for( int i = 0 ; i<comp_max ; i++ )
+        {
+            rise_rate[i] = (float)(company_list[i].value - pre_company_list[i].value)/(float)pre_company_list[i].value;
+            
         }
-
+        
     }
     first_access = 1;
 
@@ -203,10 +209,11 @@ void req_account_info() {
     char msg[BUFSIZ];
     strcpy(msg, "USERINFO");
     write(sock_id, msg, strlen(msg) + 1);
-    if ((read(sock_id, (struct User*)&user, sizeof(user))) == -1)     {
+    if ((read(sock_id, (struct User*)&user, sizeof(user))) == -1)
+    {
         oops("read");
         return;
-    }
+    } 
 }
 
 
@@ -214,11 +221,11 @@ void tty_mode(int how) {
     static struct termios original_mode;
     static int original_flags;
 
-    if (how == 0) {
+    if (how == 0)    {
         tcgetattr(0, &original_mode);
         original_flags = fcntl(0, F_GETFL);
     }
-    else {
+    else    {
         tcsetattr(0, TCSANOW, &original_mode);
         original_flags = fcntl(0, F_SETFL, original_flags);
     }
@@ -262,10 +269,12 @@ void empty_setup() {
     int max_empty = 7;
 
     empty = (char**)malloc(sizeof(char*) * max_empty);
-    for (int i = 0; i < max_empty; i++)     {
+    for (int i = 0; i < max_empty; i++)
+    {
         empty[i] = (char*)malloc(sizeof(char) * max_empty + 1);
         strcpy(empty[i], "\0");
-        for (int j = 0; j < i; j++)         {
+        for (int j = 0; j < i; j++)
+        {
             strcat(empty[i], " \0");
         }
 
@@ -283,58 +292,67 @@ void start() {
     // 입력 받는 부분
     char c;
     int state = MAIN;
-    while (1) {
+    while (1)     {
         c = getchar();
-        if (c == 's')         {
+        if (c == 's')
+        {
             if (state == MAIN && key_row == 2)
                 continue;
             if (state == LIST && key_row == comp_max - 1)
                 continue;
             key_row++;
         }
-        if (c == 'w')         {
+        if (c == 'w')
+        {
             if (key_row == 0)
                 continue;
             key_row--;
         }
-        if (c == 'a' && state == LIST)         {
+        if (c == 'a' && state == LIST)
+        {
             if (key_col == 0)
                 continue;
             key_col--;
         }
-        if (c == 'd' && state == LIST)         {
+        if (c == 'd' && state == LIST)
+        {
             if (key_col == 1)
                 continue;
             key_col++;
         }
-        if (c == 'f' && state == LIST)         {
+        if (c == 'f' && state == LIST)
+        {
             if (amount == 10)
                 continue;
             amount++;
         }
-        if (c == 'g' && state == LIST)         {
+        if (c == 'g' && state == LIST)
+        {
             if (amount == 0)
                 continue;
             amount--;
         }
-        if (c == 13) {
-            if (state == MAIN) {
+        if (c == 13)             {
+            if (state == MAIN){
                 fl = 1;
                 pthread_join(t_list[0], NULL);
                 fl = 0;
-                if (key_row == 0)                 {
+                if (key_row == 0)
+                {
                     // main_menu 끄고 stock_list animate 키고
                     state = LIST;
                     pthread_create(&t_list[1], NULL, stock_list, NULL);
                 }
-                if (key_row == 1)                 {
+                if (key_row == 1)
+                {
                     // main_menu 끄고 account_info
                     state = ACCOUNT;
                     account_info();
                     state = MAIN;
                     pthread_create(&t_list[0], NULL, main_menu, NULL);
                 }
-                if (key_row == 2)                 {
+                if (key_row == 2)
+                {
                     // main_menu  끄고 helpme
                     state = HELP;
                     helpme();
@@ -342,15 +360,18 @@ void start() {
                     pthread_create(&t_list[0], NULL, main_menu, NULL);
                 }
             }
-            else if (state == LIST)             {
+            else if (state == LIST)
+            {
                 fl = 1;
                 pthread_join(t_list[1], NULL);
                 fl = 0;
                 state = TRADE;
-                if (key_col == 0)                 {
+                if (key_col == 0)
+                {
                     buy(key_row, amount);
                 }
-                if (key_col == 1)                 {
+                if (key_col == 1)
+                {
                     sell(key_row, amount);
                 }
                 amount = 0;
@@ -359,25 +380,30 @@ void start() {
                 state = LIST;
                 pthread_create(&t_list[1], NULL, stock_list, NULL);
             }
-            else if (state == ACCOUNT)             {
+            else if (state == ACCOUNT)
+            {
 
             }
             refresh();
         }
-        if (c == 'q')         {
+        if (c == 'q')
+        {
             fl = 1;
-            if (state == MAIN)             {
+            if (state == MAIN)
+            {
                 pthread_cancel(t_list[0]);
                 endwin();
                 return;
             }
-            else if (state == LIST)             {
+            else if (state == LIST)
+            {
                 state = MAIN;
                 pthread_join(t_list[1], NULL);
                 pthread_create(&t_list[0], NULL, main_menu, NULL);
                 fl = 0;
             }
-            else if (state == ACCOUNT)             {
+            else if (state == ACCOUNT)
+            {
 
             }
         }
@@ -385,7 +411,8 @@ void start() {
     }
 }
 
-void* main_menu(void* arg) {
+void* main_menu(void* arg)
+{
     pthread_mutex_lock(&mx);
     int stout;
     clear();
@@ -403,7 +430,8 @@ void* main_menu(void* arg) {
     // T
     attron(COLOR_PAIR(2));
     mvprintw(LOGOROW + 0, LOGOCOL + 5, empty[5]);
-    for (int i = 0; i < 5; i++)     {
+    for (int i = 0; i < 5; i++)
+    {
         mvprintw(LOGOROW + i, LOGOCOL + 4 + 3, empty[1]);
     }
 
@@ -425,7 +453,8 @@ void* main_menu(void* arg) {
 
     // K
     attron(COLOR_PAIR(5));
-    for (int i = 0; i < 5; i++)     {
+    for (int i = 0; i < 5; i++)
+    {
         mvprintw(LOGOROW + i, LOGOCOL + 19 + 1, empty[1]);
     }
     mvprintw(LOGOROW + 0, LOGOCOL + 19 + 4, empty[2]);
@@ -452,17 +481,21 @@ void* main_menu(void* arg) {
     move(MENUROW + 2, MENUCOL);
     addstr(menu_list[2]);
 
-    while (1)     {
+    while (1)
+    {
         stout = key_row;
-        for (int i = 0; i < 3; i++)         {
-            if (i == stout)             {
+        for (int i = 0; i < 3; i++)
+        {
+            if (i == stout)
+            {
                 standout();
             }
             mvprintw(MENUROW + i, MENUCOL, menu_list[i]);
             standend();
         }
         refresh();
-        if (fl == 1)         {
+        if (fl == 1)
+        {
             pthread_mutex_unlock(&mx);
             break;
         }
@@ -471,7 +504,8 @@ void* main_menu(void* arg) {
     return NULL;
 }
 
-void* stock_list(void* arg) {
+void* stock_list(void* arg)
+{
     clear();
     key_row = 0;
     key_col = 0;
@@ -491,7 +525,7 @@ void* stock_list(void* arg) {
     action[1] = "SELL";
     int h = 0;
 
-    while (1) {
+    while (1)     {
         pthread_mutex_lock(&mx);
 
         //draw company list
@@ -500,17 +534,22 @@ void* stock_list(void* arg) {
         arr = key_row;
         buy_sell = key_col;
 
-        for (int i = 0; i < comp_max; i++)         {
-            if (i == arr)             {
+        for (int i = 0; i < comp_max; i++)
+        {
+            if (i == arr)
+            {
                 mvprintw(LOGOROW + 5 + i, LOGOCOL - 12, ">");
             }
-            else             {
+            else
+            {
                 mvprintw(LOGOROW + 5 + i, LOGOCOL - 12, empty[1]);
             }
         }
 
-        for (int i = 0; i < 2; i++)         {
-            if (i == buy_sell)             {
+        for (int i = 0; i < 2; i++)
+        {
+            if (i == buy_sell)
+            {
                 standout();
             }
             mvprintw(MENUROW, MENUCOL + 10 + 5 * i, action[i]);
@@ -518,7 +557,8 @@ void* stock_list(void* arg) {
         }
         refresh();
 
-        if (fl == 1)         {
+        if (fl == 1)
+        {
             pthread_mutex_unlock(&mx);
             break;
         }
@@ -532,12 +572,13 @@ void list_comp() {
     // printw 류는 동일한 자원에 접근함
     char comp_info[100];
     char table[100];
-    sprintf(table, "%10s   %10s %13s %16s", "COMPANY", "PRICE", "MY STOCKS", "FLUCTUATION");
-    mvprintw(LOGOROW + 4, LOGOCOL - 10, table);
-    char* per = "%%";
-    for (int i = 0; i < comp_max; i++)     {
-        sprintf(comp_info, "%10s : %10d won %9d %10.1f %s", company_list[i].name, company_list[i].value, user.stock[i], rise_rate[i] * 100, per);
-        mvprintw(LOGOROW + 5 + i, LOGOCOL - 10, comp_info);
+    sprintf(table, "%10s   %10s %13s %16s","COMPANY", "PRICE", "MY STOCKS", "FLUCTUATION");
+    mvprintw(LOGOROW + 4, LOGOCOL -10, table);
+    char *per = "%%";
+    for (int i = 0; i < comp_max; i++)
+    {
+        sprintf(comp_info, "%10s : %10d won %9d %10.1f %s",company_list[i].name, company_list[i].value, user.stock[i], rise_rate[i]*100,per);
+        mvprintw(LOGOROW + 5 + i, LOGOCOL -10, comp_info);
     }
 
     char m_s[30];
@@ -575,16 +616,16 @@ void buy(int num, int amount) {
 
     char c;
     char response[100];
-    char* msg;
+    char *msg;
     char amt[20];
     int is_ok;
     struct company* comp = &company_list[num];
 
-    msg = (char*)malloc(sizeof(char) * BUFSIZ);
-    sprintf(msg, "%s %s %d", "BUY", comp->name, amount);
+    msg = (char *)malloc(sizeof(char)*BUFSIZ);
+    sprintf(msg,"%s %s %d","BUY", comp->name, amount);
     write(sock_id, msg, strlen(msg) + 1);
     free(msg);
-    if ((read(sock_id, &is_ok, sizeof(is_ok))) == -1) {
+    if ((read(sock_id, &is_ok, sizeof(is_ok))) == -1)     {
         oops("read");
         return;
     }
@@ -595,22 +636,22 @@ void buy(int num, int amount) {
     req_account_info(); //USER
 
     // client가 돈이 없을 때
-    if (!is_ok) {
+    if (!is_ok)     {
         clear();
         oops("Money");
         mvprintw(MENUROW, MENUCOL, "Press Any Key");
         refresh();
-        while (getchar() == -1) {
+        while (getchar() == -1)         {
 
         }
         clear();
         return;
     }
-
+    
 }
 
 void sell(int num, int amount) {
-
+  
 
     char c;
     char response[100];
@@ -619,11 +660,11 @@ void sell(int num, int amount) {
     int is_ok;
     struct company* comp = &company_list[num];
 
-    sprintf(msg, "%s %s %d", "SELL", comp->name, amount);
+    sprintf(msg,"%s %s %d","SELL", comp->name, amount);
     // SELL NAME AMT
     strcat(msg, amt);
     write(sock_id, msg, strlen(msg) + 1);
-    if ((read(sock_id, &is_ok, sizeof(is_ok))) == -1) {
+    if ((read(sock_id, &is_ok, sizeof(is_ok))) == -1)     {
         oops("read");
         return;
     }
@@ -633,12 +674,13 @@ void sell(int num, int amount) {
     req_account_info(); //USER
 
     // client의 주식 보유 수량 없을 때
-    if (!is_ok) {
+    if (!is_ok)     {
         clear();
         oops("No Stock");
         mvprintw(MENUROW, MENUCOL, "Press Any Key");
         refresh();
-        while (getchar() == -1)         {
+        while (getchar() == -1)
+        {
 
         }
         return;
@@ -655,15 +697,16 @@ void account_info() {
     char value[20];
     char u_n[50];
 
-    sprintf(u_n, "Username : %20s", user.username);
+    sprintf(u_n,"Username : %20s",user.username);
     mvprintw(LOGOROW + 6, LOGOCOL - 12, u_n);
-    for (int i = 0; i < comp_max; i++) {
+    for (int i = 0; i < comp_max; i++)     {
         mvprintw(LOGOROW + 7, LOGOCOL - 12 + 10 * i, company_list[i].name);
         sprintf(value, "%d", user.stock[i]);
         mvprintw(LOGOROW + 8, LOGOCOL - 12 + 10 * i, value);
     }
     refresh();
-    while (getchar() == -1)     {
+    while (getchar() == -1)
+    {
 
     }
     return;
@@ -684,7 +727,8 @@ void helpme() {
     mvprintw(LOGOROW + 14, LOGOCOL - 12, "q : go back");
     mvprintw(LOGOROW + 15, LOGOCOL - 12, "Enter : enter");
     refresh();
-    while (getchar() == -1)     {
+    while (getchar() == -1)
+    {
 
     }
     return;
