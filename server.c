@@ -15,26 +15,30 @@
 
 #define MAX_CLNT 32
 #define BUF_SIZE 128
-#define COMPANY_COUNT 5
+// #define COMPANY_COUNT 5
+
+int COMPANY_COUNT = 0;
 
 
 int clnt_cnt = 0;
 int clnt_socks[MAX_CLNT];
 pthread_mutex_t mutx;
+pthread_mutex_t mutx2;
 
 struct company {
     char name[20];
     int value;
     double stdev;
 } company;
-struct company clist[COMPANY_COUNT];
+struct company* clist;
+
 
 struct User {
     char username[20];
     int balance;
-    int wallet[COMPANY_COUNT];
+    int* wallet;
 } User;
-struct User user;
+struct User* userlist;
 
 
 
@@ -69,9 +73,19 @@ int* next_value(int* valueptr, double stdev) {
     return valueptr;
 }
 
+
 int findidx(char* companyname) {
     for (int i = 0; i < COMPANY_COUNT; i++) {
         if (!(strcmp(clist[i].name, companyname))) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int finduseridx(int sockid) {
+    for (int i = 0; i < clnt_cnt; i++) {
+        if (clnt_socks[i] == sockid) {
             return i;
         }
     }
@@ -96,20 +110,16 @@ void* handle_clnt(void* arg) {
     int str_len = 0, i;
     char msg[BUF_SIZE];
     char response[BUF_SIZE];
-    char optype[10] = {'\0', };
-    char argument[50] = { '\0', };
-    char temp[10] = "fffff\n";
 
     int amount = 0;
     int flag = 0;
 
+    int useridx = finduseridx(clnt_sock);
 
-
-
-    
 
     char* sArr[10] = { NULL, };    // 크기가 10인 문자열 포인터 배열을 선언하고 NULL로 초기화
     while ((str_len = read(clnt_sock, msg, sizeof(msg))) != 0) {
+        pthread_mutex_lock(&mutx2);
         for (int i = 0; i < 10; i++) {
             sArr[i] = NULL;
         }
@@ -127,11 +137,6 @@ void* handle_clnt(void* arg) {
             ptr = strtok(NULL, " ");   // 다음 문자열을 잘라서 포인터를 반환
         }
 
-        // for (int i = 0; i < 10; i++) {
-        //     if (sArr[i] != NULL)           // 문자열 포인터 배열의 요소가 NULL이 아닐 때만
-        //         printf("%s\n", sArr[i]);   // 문자열 포인터 배열에 인덱스로 접근하여 각 문자열 출력
-        // }
-
         if (!sArr[0]) {
             printf("아무 명령도 입력되지 않았습니다.\n");
             continue;
@@ -141,8 +146,8 @@ void* handle_clnt(void* arg) {
             printf("Getlist 보냄\n");
         }
         else if (!(strcmp(sArr[0], "USERINFO"))) {
-            send_msg(clnt_sock, (void*)&user, sizeof(user));
-            printf("UserInfo 보냄\n");
+            send_msg(clnt_sock, (void*)&userlist[useridx], sizeof(userlist[useridx]));
+            printf("%d - UserInfo 보냄\n", clnt_sock);
         }
         else if (!(strcmp(sArr[0], "BUY"))) {
             if (sArr[1] && sArr[2]) {
@@ -155,18 +160,18 @@ void* handle_clnt(void* arg) {
                 else {
                     amount = atoi(sArr[2]);
 
-                    if (amount * clist[companyidx].value > user.balance) {
+                    if (amount * clist[companyidx].value > userlist[useridx].balance) {
                         printf("잔액이 부족합니다.\n");
                         flag = 0;
                         send_msg(clnt_sock, &flag, sizeof(flag));
                         continue;
                     }
                     
-                    user.balance -= amount * clist[companyidx].value;
-                    user.wallet[companyidx] += amount;
-                    printf("[BUY] %s %d주를 %d에 구매 -> 잔액: %d\n", clist[companyidx].name, amount, clist[companyidx].value, user.balance);
+                    userlist[useridx].balance -= amount * clist[companyidx].value;
+                    userlist[useridx].wallet[companyidx] += amount;
+                    printf("%s | [BUY] %s %d주를 %d에 구매 -> 잔액: %d\n", userlist[useridx].username, clist[companyidx].name, amount, clist[companyidx].value, userlist[useridx].balance);
                     for (int i = 0; i < COMPANY_COUNT; i++) {
-                        printf("%s:%d\t", clist[i].name, user.wallet[i]);
+                        printf("%s:%d\t", clist[i].name, userlist[useridx].wallet[i]);
                     }
                     puts("");
                     flag = 1;
@@ -190,21 +195,21 @@ void* handle_clnt(void* arg) {
                 else {
                     amount = atoi(sArr[2]);
 
-                    if (amount > user.wallet[companyidx]) {
+                    if (amount > userlist[useridx].wallet[companyidx]) {
                         printf("보유 수량보다 더 많은 주식을 팔 수 없습니다.\n");
                         flag = 0;
                         send_msg(clnt_sock, &flag, sizeof(flag));
                         continue;
                     }
 
-                    user.balance += amount * clist[companyidx].value;
-                    user.wallet[companyidx] -= amount;
-                    printf("[SELL] %s %d주를 %d에 판매 -> 잔액: %d\n", clist[companyidx].name, amount, clist[companyidx].value, user.balance);
+                    userlist[useridx].balance += amount * clist[companyidx].value;
+                    userlist[useridx].wallet[companyidx] -= amount;
+                    printf("%s | [SELL] %s %d주를 %d에 판매 -> 잔액: %d\n", userlist[useridx].username, clist[companyidx].name, amount, clist[companyidx].value, userlist[useridx].balance);
                     for (int i = 0; i < COMPANY_COUNT; i++) {
-                        printf("%s:%d\t", clist[i].name, user.wallet[i]);
+                        printf("%s:%d\t", clist[i].name, userlist[useridx].wallet[i]);
                     }
                     puts("");
-                    flag = 0;
+                    flag = 1;
                     send_msg(clnt_sock, &flag, sizeof(flag));
                 }
             }
@@ -217,31 +222,7 @@ void* handle_clnt(void* arg) {
         else {
             printf("%s 는 올바른 명령이 아닙니다.\n", sArr[0]);
         }
-
-
-        // sscanf(msg, "%s %s", optype, argument);
-        // printf("[%s] [%s]\n", optype, argument);
-        // if (!(strcmp(optype, "GETLIST"))) {
-        
-        // }
-        // else if (!(strcmp(optype, "BALANCE"))) {
-        //     char temp[20];
-        //     sprintf(temp, "%d\n", user.balance);
-        //     send_msg(clnt_sock, temp, strlen(temp));
-        // }
-        // else if (!(strcmp(optype, "GETVAL"))) {
-        //     int index = findidx(argument);
-        //     if (index >= 0 && index < COMPANY_COUNT) {
-        //         sprintf(response, "%s|%d\n", clist[index].name, clist[index].value);
-        //         send_msg(clnt_sock, response, strlen(response));
-        //     }
-        //     else {
-        //         send_msg(clnt_sock, "No Match Company\n", 17);
-        //     }
-        // }
-        // else {
-        //     send_msg(clnt_sock, "No Match Command\n", 17);
-        // }
+        pthread_mutex_unlock(&mutx2);
     }
 
     pthread_mutex_lock(&mutx);
@@ -261,6 +242,7 @@ void* handle_clnt(void* arg) {
 
 
 void* update_stockval(void* temp) {
+    pthread_mutex_lock(&mutx2);
     while (1) {
         for (int i = 0; i < COMPANY_COUNT; i++) {
             next_value(&clist[i].value, clist[i].stdev);
@@ -268,6 +250,7 @@ void* update_stockval(void* temp) {
         }
         sleep(3);
     }
+    pthread_mutex_lock(&mutx2);
     return NULL;
 }
 
@@ -325,11 +308,17 @@ int main(int argc, char* argv[]) {
     // copy sorted data to struct company
     int fd = open("stockdata.dat", O_RDONLY);
     int pipefd = sortdata(fd);
-    char temp[20];
     FILE* fp = fdopen(pipefd, "rb");
-    for (int i = 0; i < COMPANY_COUNT; i++) {
+    
+    userlist = (struct User*)malloc(sizeof(struct User));
+    clist = (struct company*)malloc(sizeof(struct company));
+    for (int i = 0; ; i++) {
+        clist = (struct company*)realloc(clist, sizeof(struct company) * (i + 1));
         fscanf(fp, "%s %d %lf", clist[i].name, &clist[i].value, &clist[i].stdev);
+        if (feof(fp))
+            break;
         printf("%s\t%d\t%lf\n", clist[i].name, clist[i].value, clist[i].stdev);
+        COMPANY_COUNT = i + 1;
     }
     fclose(fp);
     close(pipefd);
@@ -337,19 +326,12 @@ int main(int argc, char* argv[]) {
     // initalize stockval update thread
     pthread_create(&t_update, NULL, update_stockval, (void*)NULL);
 
-
-    // initalize user
-    strcpy(user.username, "TestUser1");
-    user.balance = 1000000;
-    for (int i = 0; i < COMPANY_COUNT; i++) {
-        user.wallet[i] = 0;
-    }
-
-
     // initalize socket
     pthread_mutex_init(&mutx, NULL);
+    pthread_mutex_init(&mutx2, NULL);
     serv_sock = socket(PF_INET, SOCK_STREAM, 0);
     int opt = 1;
+    // 중복 bind() 허용
     setsockopt(serv_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     memset(&serv_adr, 0, sizeof(serv_adr));
@@ -369,6 +351,14 @@ int main(int argc, char* argv[]) {
 
         pthread_mutex_lock(&mutx);
         clnt_socks[clnt_cnt++] = clnt_sock;
+        // initalize user
+        userlist = (struct User*)realloc(userlist, sizeof(struct User) * clnt_cnt);
+        sprintf(userlist[clnt_cnt - 1].username, "User_%d", clnt_cnt - 1);
+        userlist[clnt_cnt - 1].balance = 1000000;
+        userlist[clnt_cnt - 1].wallet = (int*)malloc(sizeof(int) * COMPANY_COUNT);
+        for (int i = 0; i < COMPANY_COUNT; i++) {
+            userlist[clnt_cnt - 1].wallet[i] = 0;
+        }
         pthread_mutex_unlock(&mutx);
 
         pthread_create(&t_id, NULL, handle_clnt, (void*)&clnt_sock);
