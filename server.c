@@ -15,10 +15,8 @@
 
 #define MAX_CLNT 32
 #define BUF_SIZE 128
-// #define COMPANY_COUNT 5
-
+#define DEFAULT_BALANCE 1000000
 int COMPANY_COUNT = 0;
-
 
 int clnt_cnt = 0;
 int clnt_socks[MAX_CLNT];
@@ -31,7 +29,6 @@ struct company {
     double stdev;
 } company;
 struct company* clist;
-
 
 struct User {
     char username[20];
@@ -73,7 +70,7 @@ int* next_value(int* valueptr, double stdev) {
     return valueptr;
 }
 
-
+// 종목 인덱스
 int findidx(char* companyname) {
     for (int i = 0; i < COMPANY_COUNT; i++) {
         if (!(strcmp(clist[i].name, companyname))) {
@@ -83,6 +80,7 @@ int findidx(char* companyname) {
     return -1;
 }
 
+// 사용자 인덱스
 int finduseridx(int sockid) {
     for (int i = 0; i < clnt_cnt; i++) {
         if (clnt_socks[i] == sockid) {
@@ -92,7 +90,7 @@ int finduseridx(int sockid) {
     return -1;
 }
 
-
+// Mutex 사용 msg 전송
 void send_msg(int clnt_sock, void* msg, int len) {
     pthread_mutex_lock(&mutx);
     write(clnt_sock, msg, len);
@@ -107,10 +105,9 @@ void error_handling(char* msg) {
 
 void* handle_clnt(void* arg) {
     int clnt_sock = *((int*)arg);
-    int str_len = 0, i;
+    int str_len = 0;
     char msg[BUF_SIZE];
-    char response[BUF_SIZE];
-
+    
     int amount = 0;
     int flag = 0;
 
@@ -227,7 +224,7 @@ void* handle_clnt(void* arg) {
 
     pthread_mutex_lock(&mutx);
     // remove disconnected client
-    for (i = 0; i < clnt_cnt; i++) {
+    for (int i = 0; i < clnt_cnt; i++) {
         if (clnt_sock == clnt_socks[i]) {
             while (i < clnt_cnt)
                 clnt_socks[i] = clnt_socks[i + 1];
@@ -242,15 +239,15 @@ void* handle_clnt(void* arg) {
 
 
 void* update_stockval(void* temp) {
-    pthread_mutex_lock(&mutx2);
     while (1) {
+        pthread_mutex_lock(&mutx2);
         for (int i = 0; i < COMPANY_COUNT; i++) {
             next_value(&clist[i].value, clist[i].stdev);
-            // printf("%s -> %d\n", clist[i].name, clist[i].value);
+            printf("%s | %d\n", clist[i].name, clist[i].value);
         }
+        pthread_mutex_unlock(&mutx2);
         sleep(3);
     }
-    pthread_mutex_lock(&mutx2);
     return NULL;
 }
 
@@ -324,11 +321,11 @@ int main(int argc, char* argv[]) {
     close(pipefd);
 
     // initalize stockval update thread
+    pthread_mutex_init(&mutx2, NULL);
     pthread_create(&t_update, NULL, update_stockval, (void*)NULL);
 
     // initalize socket
     pthread_mutex_init(&mutx, NULL);
-    pthread_mutex_init(&mutx2, NULL);
     serv_sock = socket(PF_INET, SOCK_STREAM, 0);
     int opt = 1;
     // 중복 bind() 허용
@@ -354,7 +351,7 @@ int main(int argc, char* argv[]) {
         // initalize user
         userlist = (struct User*)realloc(userlist, sizeof(struct User) * clnt_cnt);
         sprintf(userlist[clnt_cnt - 1].username, "User_%d", clnt_cnt - 1);
-        userlist[clnt_cnt - 1].balance = 1000000;
+        userlist[clnt_cnt - 1].balance = DEFAULT_BALANCE;
         userlist[clnt_cnt - 1].wallet = (int*)malloc(sizeof(int) * COMPANY_COUNT);
         for (int i = 0; i < COMPANY_COUNT; i++) {
             userlist[clnt_cnt - 1].wallet[i] = 0;
