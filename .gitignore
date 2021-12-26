@@ -56,3 +56,9 @@ program
 client
 server
 *.json
+
+
+stockdata.dat
+test*.*
+chat*
+server*
