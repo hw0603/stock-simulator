@@ -226,14 +226,17 @@ void* handle_clnt(void* arg) {
     // remove disconnected client
     for (int i = 0; i < clnt_cnt; i++) {
         if (clnt_sock == clnt_socks[i]) {
-            while (i < clnt_cnt)
+            while (i < clnt_cnt) {
                 clnt_socks[i] = clnt_socks[i + 1];
+                i++;
+            }
             break;
         }
     }
     clnt_cnt--;
     pthread_mutex_unlock(&mutx);
     close(clnt_sock);
+    printf("%s 접속 종료\n", userlist[useridx].username);
     return NULL;
 }
 
@@ -243,7 +246,7 @@ void* update_stockval(void* temp) {
         pthread_mutex_lock(&mutx2);
         for (int i = 0; i < COMPANY_COUNT; i++) {
             next_value(&clist[i].value, clist[i].stdev);
-            printf("%s | %d\n", clist[i].name, clist[i].value);
+            // printf("%s | %d\n", clist[i].name, clist[i].value);
         }
         pthread_mutex_unlock(&mutx2);
         sleep(3);
