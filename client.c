@@ -6,6 +6,7 @@
 #include <termios.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/ioctl.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -17,23 +18,28 @@
 
 #include <sys/time.h>
 
+#include <aio.h>
 
-#define MAXW 50
-#define MAXH 40
+int MAXW;
+int MAXH;
 #define WORDSIZE 5
 
 #define LOGOSIZE 5
-#define LOGOROW 1
-#define LOGOCOL (MAXW/2 - 12)  
 
-#define MENUROW 21
-#define MENUCOL (MAXW/2 - 5)  
+int LOGOROW;
+int LOGOCOL;
+
+int MENUROW;
+int MENUCOL; 
 
 #define HOSTLEN 256
 
-#define STOCKS 20
+#define STOCKS 11
 
 #define oops(msg) {mvprintw(LOGOROW+10, LOGOCOL, msg); refresh();}
+
+
+struct winsize w;
 
 // user가 어느 화면에 있는지
 enum states { MAIN, LIST, TRADE, ACCOUNT, HELP };
@@ -43,6 +49,7 @@ struct company
 {
     char name[20];
     int value;
+    int initvalue;
     double stdev;
 } company;
 struct company company_list[BUFSIZ];
@@ -64,6 +71,10 @@ char** empty;
 int port;
 char* hostname;
 
+struct aiocb kbcbuf;   /* an aio control buf   */
+int dir = 1;
+int done = 0;
+
 // 키보드 위치
 int key_row = 0;
 int key_col = 0;
@@ -71,7 +82,11 @@ int amount = 0;
 // socket - server
 int sock_id;
 
+pthread_t t_list[10];
+
 int fl = 0;
+int stage = MAIN;
+
 
 void err_msg(char *);
 
@@ -84,6 +99,8 @@ void empty_setup();
 void set_crmode(void);
 void set_nodelay_mode(void);
 void tty_mode(int);
+void setup_aio_buffer();
+void on_input(int );
 void set_signal();
 
 //  screens
@@ -110,6 +127,8 @@ void req_buy_sell();
 void update_stock(int);
 
 int first_access = 0;
+int first_balance = 0;
+
 
 pthread_mutex_t mx = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t flag = PTHREAD_COND_INITIALIZER;
@@ -117,21 +136,26 @@ int main(int ac, char* av[]) {
 
     hostname = av[1];
     port = atoi(av[2]);
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    MAXW = w.ws_col;
+    MAXH = w.ws_row;
+    LOGOROW = MAXH/4;
+    LOGOCOL = MAXW/2 - LOGOSIZE*2.5;
 
+    MENUROW = MAXH/2 + MAXH/4;
+    MENUCOL = MAXW/2 - LOGOSIZE; 
 
     tty_mode(0);
-    set_nodelay_mode();
+    // set_nodelay_mode();
     set_crmode();
     set_signal();
+    signal(SIGIO, on_input);
+    setup_aio_buffer();
+    aio_read(&kbcbuf);
 
     connect_to_server(av);
 
-    
-
-
     initscr();
-
-
     color_setup();
     empty_setup();
 
@@ -153,6 +177,7 @@ void err_msg(char *msg)
     printf("%s\n",msg);
     exit(3);
 }
+
 
 void connect_to_server(char** argv) {
     int sock;
@@ -183,14 +208,12 @@ void req_comp_list() {
 
     if(first_access != 0)
     {
-        
         for( int i = 0 ; i<comp_max ; i++ )
         {
             pre_company_list[i] = company_list[i];
         }
 
     }
-    comp_max = 0;
 
 
     strcpy(msg, "GETLIST");
@@ -205,7 +228,7 @@ void req_comp_list() {
     {   
         for( int i = 0 ; i<comp_max ; i++ )
         {
-            rise_rate[i] = (float)(company_list[i].value - pre_company_list[i].value)/(float)pre_company_list[i].value;
+            rise_rate[i] = (float)(company_list[i].value - company_list[i].initvalue) / (float)pre_company_list[i].initvalue;
             
         }
         
@@ -234,7 +257,6 @@ void req_account_info() {
         return;
     }
 }
-
 
 void tty_mode(int how) {
     static struct termios original_mode;
@@ -266,10 +288,189 @@ void set_crmode(void) {
     tcsetattr(0, TCSANOW, &state);
 }
 
+void setup_aio_buffer()
+{
+    static char input[1];            /* 1 char of input */
+
+   /* describe what to read */
+   kbcbuf.aio_fildes     = 0;             /* standard intput */
+   kbcbuf.aio_buf        = input;         /* buffer          */
+   kbcbuf.aio_nbytes     = 1;             /* number to read  */
+   kbcbuf.aio_offset     = 0;             /* offset in file  */
+
+   /* describe what to do when read is ready */
+   kbcbuf.aio_sigevent.sigev_notify = SIGEV_SIGNAL;
+   kbcbuf.aio_sigevent.sigev_signo  = SIGIO;  /* send SIGIO   */
+}
+
+void on_input(int snum)
+{  
+    int  c;
+    char *cp = (char *) kbcbuf.aio_buf;   /* cast to char * */
+    /* check for errors */
+    if (aio_error(&kbcbuf) != 0)
+        perror("reading failed");
+    else 
+        /* get number of chars read */
+        if (aio_return(&kbcbuf) == 1)
+        {
+            c = *cp;
+
+           
+                if (c == 's')
+                {
+                    if (stage == MAIN && key_row == 2)
+                    {
+                        aio_read(&kbcbuf);
+                        return;
+                    }
+                    if (stage == LIST && key_row == comp_max - 1)
+                        {
+                        aio_read(&kbcbuf);
+                        return;
+                    }
+                    key_row++;
+                }
+                if (c == 'w')
+                {
+                    if (key_row == 0)
+                        {
+                        aio_read(&kbcbuf);
+                        return;
+                    }
+                    key_row--;
+                }
+                if (c == 'a' && stage == LIST)
+                {
+                    if (key_col == 0)
+                        {
+                        aio_read(&kbcbuf);
+                        return;
+                    }
+                    key_col--;
+                }
+                if (c == 'd' && stage == LIST)
+                {
+                    if (key_col == 2)
+                        {
+                        aio_read(&kbcbuf);
+                        return;
+                    }
+                    key_col++;
+                }
+                if ((c == '=' || c == '+')&& stage == LIST)
+                {
+                    if (amount == 10)
+                        {
+                        aio_read(&kbcbuf);
+                        return;
+                    }
+                    amount++;
+                }
+                if ((c == '-' || c == '_') && stage == LIST)
+                {
+                    if (amount == 0)
+                        {
+                        aio_read(&kbcbuf);
+                        return;
+                    }
+                    amount--;
+                }
+                if (c == 13)             {
+                    if (stage == MAIN){
+                        fl = 1;
+                        pthread_join(t_list[0], NULL);
+                        fl = 0;
+                        if (key_row == 0)
+                        {
+                            // main_menu 끄고 stock_list animate 키고
+                            stage = LIST;
+                            pthread_create(&t_list[1], NULL, stock_list, NULL);
+                        }
+                        if (key_row == 1)
+                        {
+                            // main_menu 끄고 account_info
+                            stage = ACCOUNT;
+                            account_info();
+                            stage = MAIN;
+                            pthread_create(&t_list[0], NULL, main_menu, NULL);
+                        }
+                        if (key_row == 2)
+                        {
+                            // main_menu  끄고 helpme
+                            stage = HELP;
+                            helpme();
+                            stage = MAIN;
+                            pthread_create(&t_list[0], NULL, main_menu, NULL);
+                        }
+                    }
+                    else if (stage == LIST)
+                    {
+                        fl = 1;
+                        pthread_join(t_list[1], NULL);
+                        fl = 0;
+                        stage = TRADE;
+                        if (key_col == 0)
+                        {
+                            buy(key_row, amount);
+                        }
+                        if (key_col == 1)
+                        {
+                            sell(key_row, amount);
+                        }
+                        if (key_col == 2)
+                        {
+                            sell(key_row, 11);
+                        }
+                        amount = 0;
+                        key_col = 0;
+                        key_row = 0;
+                        stage = LIST;
+                        pthread_create(&t_list[1], NULL, stock_list, NULL);
+                    }
+                    else if (stage == ACCOUNT)
+                    {
+
+                    }
+                    refresh();
+                }
+                if (c == 'Q')
+                {
+                    fl = 1;
+                    if (stage == MAIN)
+                    {
+                        pthread_join(t_list[0], NULL);
+                        endwin();
+                        done = 1;
+                        return;
+                    }
+                }
+                if (c == 'q')
+                {
+                    fl = 1;
+                    if (stage == LIST)
+                    {
+                        stage = MAIN;
+                        pthread_join(t_list[1], NULL);
+                        pthread_create(&t_list[0], NULL, main_menu, NULL);
+                        fl = 0;
+                    }
+                    else if (stage == ACCOUNT)
+                    {
+
+                    }
+                }
+                pthread_mutex_unlock(&mx);
+            
+        }
+    /* place a new request */
+    aio_read(&kbcbuf);
+}
+
 void set_signal() {
     signal(SIGQUIT, SIG_IGN);
-
 }
+
 
 void color_setup() {
     start_color();
@@ -281,11 +482,15 @@ void color_setup() {
     init_pair(5, COLOR_MAGENTA, COLOR_MAGENTA);
     init_pair(6, COLOR_CYAN, COLOR_CYAN);
     init_pair(7, COLOR_WHITE, COLOR_WHITE);
+    init_pair(8, COLOR_GREEN, COLOR_BLACK);
+    init_pair(9, COLOR_BLUE, COLOR_BLACK);
+
+
 }
 
 void empty_setup() {
     // 공백 종류 0개, 1개 ... n개
-    int max_empty = 7;
+    int max_empty = 12;
 
     empty = (char**)malloc(sizeof(char*) * max_empty);
     for (int i = 0; i < max_empty; i++)
@@ -301,137 +506,15 @@ void empty_setup() {
 }
 
 void start() {
-    pthread_t t_list[10];
 
     // ncurses 는 동일한 window 에서 작성 -> 같은 자원을 공유
     // 따라서 모든 refresh, addstr 등의 작업시에 mutex exclusive 가 보장되어야함
-    pthread_mutex_lock(&mx);
     pthread_create(&t_list[0], NULL, main_menu, NULL);
-
+    while( !done ){
+        pause();
+    };
     // 입력 받는 부분
-    char c;
-    int state = MAIN;
-    while (1)     {
-        c = getchar();
-        if (c == 's')
-        {
-            if (state == MAIN && key_row == 2)
-                continue;
-            if (state == LIST && key_row == comp_max - 1)
-                continue;
-            key_row++;
-        }
-        if (c == 'w')
-        {
-            if (key_row == 0)
-                continue;
-            key_row--;
-        }
-        if (c == 'a' && state == LIST)
-        {
-            if (key_col == 0)
-                continue;
-            key_col--;
-        }
-        if (c == 'd' && state == LIST)
-        {
-            if (key_col == 2)
-                continue;
-            key_col++;
-        }
-        if (c == '=' && state == LIST)
-        {
-            if (amount == 10)
-                continue;
-            amount++;
-        }
-        if (c == '-' && state == LIST)
-        {
-            if (amount == 0)
-                continue;
-            amount--;
-        }
-        if (c == 13)             {
-            if (state == MAIN){
-                fl = 1;
-                pthread_join(t_list[0], NULL);
-                fl = 0;
-                if (key_row == 0)
-                {
-                    // main_menu 끄고 stock_list animate 키고
-                    state = LIST;
-                    pthread_create(&t_list[1], NULL, stock_list, NULL);
-                }
-                if (key_row == 1)
-                {
-                    // main_menu 끄고 account_info
-                    state = ACCOUNT;
-                    account_info();
-                    state = MAIN;
-                    pthread_create(&t_list[0], NULL, main_menu, NULL);
-                }
-                if (key_row == 2)
-                {
-                    // main_menu  끄고 helpme
-                    state = HELP;
-                    helpme();
-                    state = MAIN;
-                    pthread_create(&t_list[0], NULL, main_menu, NULL);
-                }
-            }
-            else if (state == LIST)
-            {
-                fl = 1;
-                pthread_join(t_list[1], NULL);
-                fl = 0;
-                state = TRADE;
-                if (key_col == 0)
-                {
-                    buy(key_row, amount);
-                }
-                if (key_col == 1)
-                {
-                    sell(key_row, amount);
-                }
-                if (key_col == 2)
-                {
-                    sell(key_row, 11);
-                }
-                amount = 0;
-                key_col = 0;
-                key_row = 0;
-                state = LIST;
-                pthread_create(&t_list[1], NULL, stock_list, NULL);
-            }
-            else if (state == ACCOUNT)
-            {
-
-            }
-            refresh();
-        }
-        if (c == 'Q')
-        {
-            fl = 1;
-            if (state == MAIN)
-            {
-                pthread_cancel(t_list[0]);
-                endwin();
-                return;
-            }
-            else if (state == LIST)
-            {
-                state = MAIN;
-                pthread_join(t_list[1], NULL);
-                pthread_create(&t_list[0], NULL, main_menu, NULL);
-                fl = 0;
-            }
-            else if (state == ACCOUNT)
-            {
-
-            }
-        }
-        pthread_mutex_unlock(&mx);
-    }
+    
 }
 
 void* main_menu(void* arg)
@@ -536,7 +619,7 @@ void* stock_list(void* arg)
 
     update_stock(1);
     signal(SIGALRM, update_stock);
-    set_ticker(5000);
+    set_ticker(1000);
     //처음 위치
 
     // 입력 받는 부분
@@ -544,8 +627,8 @@ void* stock_list(void* arg)
     int arr;
     int buy_sell;
     char* action[3];
-    action[0] = "BUY";
-    action[1] = "SELL";
+    action[0] = "  BUY  ";
+    action[1] = " SELL ";
     action[2] = "SELLALL";
 
     int h = 0;
@@ -563,11 +646,11 @@ void* stock_list(void* arg)
         {
             if (i == arr)
             {
-                mvprintw(LOGOROW + 5 + i, LOGOCOL - 12, ">");
+                mvprintw(LOGOROW+1 + i, MAXW/2 - 30 , ">");
             }
             else
             {
-                mvprintw(LOGOROW + 5 + i, LOGOCOL - 12, empty[1]);
+                mvprintw(LOGOROW+1 + i, MAXW/2 - 30 , empty[1]);
             }
         }
 
@@ -577,7 +660,7 @@ void* stock_list(void* arg)
             {
                 standout();
             }
-            mvprintw(MENUROW, MENUCOL + 10 + 5 * i, action[i]);
+            mvprintw(MENUROW +2, MENUCOL +4 + 9 * i, action[i]);
             standend();
         }
         refresh();
@@ -597,25 +680,43 @@ void list_comp() {
     // printw 류는 동일한 자원에 접근함
     char comp_info[100];
     char table[100];
-    sprintf(table, "%10s   %10s %13s %16s","COMPANY", "PRICE", "MY STOCKS", "FLUCTUATION");
-    mvprintw(LOGOROW + 4, LOGOCOL -10, table);
+    
+    attron(COLOR_PAIR(8)); 
+    sprintf(table, "%10s   %10s %12s %12s","COMPANY", "PRICE", "MY STOCKS", "FLUCTUATION");
+    mvprintw(LOGOROW-1 , MAXW/2 - 25, table);
+    standend();
+
     char *per = "%%";
     for (int i = 0; i < comp_max; i++)
-    {
-        sprintf(comp_info, "%10s : %10d won %9d %10.1f %s",company_list[i].name, company_list[i].value, user.stock[i], rise_rate[i]*100,per);
-        mvprintw(LOGOROW + 5 + i, LOGOCOL -10, comp_info);
+    {   
+        if( i == key_row )
+            standout();
+        sprintf(comp_info, "%10s  %10d KRW %9d %10.1f %s",company_list[i].name, company_list[i].value, user.stock[i], rise_rate[i]*100,per);
+        mvprintw(LOGOROW+1 + i, MAXW/2 - 25, comp_info);
+        standend();
     }
 
     char m_s[30];
     char amt[20];
+    char c_m[30];
+    int c_money = user.money;
 
-    sprintf(m_s, "%s %d %s", "My Money : ", user.money, " won");
-    sprintf(amt, "%d", amount);
+    sprintf(m_s, "%s %s %d ", "My Money : ", "KRW", user.money );
+    for( int i = 0 ; i < comp_max ; i++ )
+    {
+        c_money += user.stock[i]*company_list[i].value;
+    }
+    sprintf(c_m, "Current asset :  KRW %d ", c_money );
+    sprintf(amt, "%2d", amount);
     strcat(amt, " stocks");
 
-    mvprintw(MENUROW - 2, MENUCOL + 10, empty[2]);
-    mvprintw(MENUROW - 2, MENUCOL + 10, amt);
-    mvprintw(MENUROW - 1, MENUCOL + 10, m_s);
+    mvprintw(MENUROW + 2, MENUCOL - 7, empty[10]);
+    attron(COLOR_PAIR(9));
+    mvprintw(MENUROW + 2, MENUCOL - 7, amt);
+    standend();
+    mvprintw(MENUROW +3, MENUCOL + 6, m_s);
+    mvprintw(MENUROW+ + 4, MENUCOL + 1, c_m);
+
 }
 
 void update_stock(int signum) {
@@ -654,7 +755,6 @@ void buy(int num, int amount) {
         err_msg("Error : read()");
         return;
     }
-
 
     // server 와 동기화 한번 하고
     pthread_mutex_lock(&mx);
@@ -725,15 +825,15 @@ void account_info() {
     char value[20];
     char u_n[50];
 
-    sprintf(u_n,"Username : %20s",user.username);
-    mvprintw(LOGOROW + 6, LOGOCOL - 12, u_n);
+    sprintf(u_n,"Username : %15s",user.username);
+    mvprintw(MAXH/2, 5, u_n);
     for (int i = 0; i < comp_max; i++)     {
-        mvprintw(LOGOROW + 7, LOGOCOL - 12 + 10 * i, company_list[i].name);
+        mvprintw(MAXH/2+1, 5+i*10, company_list[i].name);
         sprintf(value, "%d", user.stock[i]);
-        mvprintw(LOGOROW + 8, LOGOCOL - 12 + 10 * i, value);
+        mvprintw(MAXH/2+2, 5+i*10, value);
     }
-    sprintf(u_n, "My money : %10d", user.money);
-    mvprintw(LOGOROW + 9, LOGOCOL - 12 + 10, u_n);
+    sprintf(u_n, "%s %s %d ", "My Money : ", "KRW", user.money );
+    mvprintw(MAXH/2+3, 5, u_n);
     refresh();
     while (getchar() == -1)
     {
@@ -752,9 +852,9 @@ void helpme() {
     mvprintw(LOGOROW + 9, LOGOCOL - 12, "s : down");
     mvprintw(LOGOROW + 10, LOGOCOL - 12, "d : right");
     mvprintw(LOGOROW + 11, LOGOCOL - 12, "q : go back");
-    mvprintw(LOGOROW + 12, LOGOCOL - 12, "f : amount up");
-    mvprintw(LOGOROW + 13, LOGOCOL - 12, "g : amount down");
-    mvprintw(LOGOROW + 14, LOGOCOL - 12, "q : go back");
+    mvprintw(LOGOROW + 12, LOGOCOL - 12, "+ : amount up");
+    mvprintw(LOGOROW + 13, LOGOCOL - 12, "- : amount down");
+    mvprintw(LOGOROW + 14, LOGOCOL - 12, "Q : exit(main menu)");
     mvprintw(LOGOROW + 15, LOGOCOL - 12, "Enter : enter");
     refresh();
     while (getchar() == -1)

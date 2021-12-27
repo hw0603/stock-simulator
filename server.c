@@ -20,6 +20,7 @@
 
 #define MAX_CLNT 32
 #define MSG_BUF_SIZE 128
+#define COMPANY_MAX 10 // 종목의 최대 개수
 #define DEFAULT_BALANCE 1000000 // 사용자 잔고
 #define DEFAULT_UPDATE_INTERVAL 3 // 주가 업데이트 주기
 int COMPANY_COUNT = 0; // data파일에서 읽어온 총 종목 개수
@@ -35,6 +36,7 @@ pthread_mutex_t mutx_update; // 주가 update 시 사용할 mutex
 struct company {
     char name[20];
     int value;
+    int initvalue;
     double stdev;
 } company;
 struct company* clist;
@@ -359,9 +361,10 @@ int main(int argc, char* argv[]) {
     int pipefd = sortdata(fd);
     FILE* fp = fdopen(pipefd, "r");
     
-    for (int i = 0; ; i++, COMPANY_COUNT = i) {
+    for (int i = 0; i < COMPANY_MAX; i++, COMPANY_COUNT = i) {
         clist = (struct company*)realloc(clist, sizeof(struct company) * (i + 1));
         fscanf(fp, "%s %d %lf", clist[i].name, &clist[i].value, &clist[i].stdev);
+        clist[i].initvalue = clist[i].value;
         if (feof(fp))
             break;
         printf("%s\t%d\t%lf\n", clist[i].name, clist[i].value, clist[i].stdev);
