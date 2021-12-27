@@ -97,7 +97,6 @@ void empty_setup();
 
 // I/O settings
 void set_crmode(void);
-void set_nodelay_mode(void);
 void tty_mode(int);
 void setup_aio_buffer();
 void on_input(int );
@@ -146,7 +145,6 @@ int main(int ac, char* av[]) {
     MENUCOL = MAXW/2 - LOGOSIZE; 
 
     tty_mode(0);
-    // set_nodelay_mode();
     set_crmode();
     set_signal();
     signal(SIGIO, on_input);
@@ -165,7 +163,7 @@ int main(int ac, char* av[]) {
     endwin();
     tty_mode(1);
 
-
+    return 0;
 }
 
 void err_msg(char *msg)
@@ -270,13 +268,6 @@ void tty_mode(int how) {
         tcsetattr(0, TCSANOW, &original_mode);
         original_flags = fcntl(0, F_SETFL, original_flags);
     }
-}
-
-void set_nodelay_mode(void) {
-    int termflags;
-    termflags = fcntl(0, F_GETFL);
-    termflags |= O_NDELAY;
-    fcntl(0, F_SETFL, termflags);
 }
 
 void set_crmode(void) {
