@@ -460,6 +460,7 @@ void on_input(int snum)
 
 void set_signal() {
     signal(SIGQUIT, SIG_IGN);
+    signal(SIGINT, SIG_IGN);
 }
 
 
