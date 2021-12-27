@@ -73,10 +73,12 @@ int sock_id;
 
 int fl = 0;
 
+void err_msg(char *);
+
+
 // screen settings
 void color_setup();
 void empty_setup();
-
 
 // I/O settings
 void set_crmode(void);
@@ -142,7 +144,15 @@ int main(int ac, char* av[]) {
 
 }
 
-
+void err_msg(char *msg)
+{
+    clear();
+    oops(msg);
+    while( getchar() != -1 );
+    endwin();
+    printf("%s\n",msg);
+    exit(3);
+}
 
 void connect_to_server(char** argv) {
     int sock;
@@ -156,7 +166,8 @@ void connect_to_server(char** argv) {
 
     if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1)
     {
-        oops("connect");
+        printf("Error : connect()\n");
+        exit(3);
         return;
     }
 
@@ -186,7 +197,7 @@ void req_comp_list() {
     write(sock_id, msg, strlen(msg) + 1);
     if ((bt = read(sock_id, company_list, BUFSIZ)) == -1)
     {
-        oops("read");
+        err_msg("Error : read()");
         return;
     }
     comp_max = bt / sizeof(struct company);
@@ -211,15 +222,15 @@ void req_account_info() {
     write(sock_id, msg, strlen(msg) + 1);
     if ((read(sock_id, (char*)user.username, sizeof(user.username))) == -1)
     {
-        oops("read");
+        err_msg("Error : read()");
         return;
     }
     if ((read(sock_id, (int*)&user.money, sizeof(user.money))) == -1) {
-        oops("read");
+        err_msg("Error : read()");
         return;
     }
     if ((read(sock_id, (int*)&user.stock, sizeof(user.stock))) == -1) {
-        oops("read");
+        err_msg("Error : read()");
         return;
     }
 }
@@ -324,17 +335,17 @@ void start() {
         }
         if (c == 'd' && state == LIST)
         {
-            if (key_col == 1)
+            if (key_col == 2)
                 continue;
             key_col++;
         }
-        if (c == 'f' && state == LIST)
+        if (c == '=' && state == LIST)
         {
             if (amount == 10)
                 continue;
             amount++;
         }
-        if (c == 'g' && state == LIST)
+        if (c == '-' && state == LIST)
         {
             if (amount == 0)
                 continue;
@@ -382,6 +393,10 @@ void start() {
                 {
                     sell(key_row, amount);
                 }
+                if (key_col == 2)
+                {
+                    sell(key_row, 11);
+                }
                 amount = 0;
                 key_col = 0;
                 key_row = 0;
@@ -394,7 +409,7 @@ void start() {
             }
             refresh();
         }
-        if (c == 'q')
+        if (c == 'Q')
         {
             fl = 1;
             if (state == MAIN)
@@ -528,9 +543,11 @@ void* stock_list(void* arg)
     char c;
     int arr;
     int buy_sell;
-    char* action[2];
+    char* action[3];
     action[0] = "BUY";
     action[1] = "SELL";
+    action[2] = "SELLALL";
+
     int h = 0;
 
     while (1)     {
@@ -554,7 +571,7 @@ void* stock_list(void* arg)
             }
         }
 
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < 3; i++)
         {
             if (i == buy_sell)
             {
@@ -634,7 +651,7 @@ void buy(int num, int amount) {
     write(sock_id, msg, strlen(msg) + 1);
     free(msg);
     if ((read(sock_id, &is_ok, sizeof(is_ok))) == -1)     {
-        oops("read");
+        err_msg("Error : read()");
         return;
     }
 
@@ -666,13 +683,17 @@ void sell(int num, int amount) {
     char amt[20];
     int is_ok;
     struct company* comp = &company_list[num];
+    if( amount == 11 )
+    {
+        amount = user.stock[num];
+    }
 
     sprintf(msg,"%s %s %d","SELL", comp->name, amount);
     // SELL NAME AMT
     strcat(msg, amt);
     write(sock_id, msg, strlen(msg) + 1);
     if ((read(sock_id, &is_ok, sizeof(is_ok))) == -1)     {
-        oops("read");
+        err_msg("Error : read()");
         return;
     }
 
