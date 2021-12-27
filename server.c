@@ -350,6 +350,7 @@ int main(int argc, char* argv[]) {
 
     // set SIGINT Handler
     signal(SIGINT, shutdown_server);
+    signal(SIGQUIT, shutdown_server);
 
     srand(time(NULL));
 
